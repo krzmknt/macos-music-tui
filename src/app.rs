@@ -1,0 +1,827 @@
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::thread;
+use rand::Rng;
+
+use crate::cache::{CachedTrack, CachedPlaylist, CachedPlaylistTrack, PlaylistCache, TrackCache};
+use crate::music::{ListItem, MusicController, TrackInfo};
+
+// 再生制御用コマンド（メインワーカースレッド）
+enum Command {
+    RefreshPosition,
+    RefreshFull,
+}
+
+// 再生制御用レスポンス
+enum Response {
+    PositionUpdated(f64, bool),
+    StateUpdated(TrackInfo, i32, bool, String),
+}
+
+// キャッシュ用レスポンス（専用スレッドから）
+enum CacheResponse {
+    BatchLoaded {
+        tracks: Vec<CachedTrack>,
+        loaded: usize,
+        total: usize,
+    },
+    Upsert {
+        tracks: Vec<CachedTrack>,
+        total: usize,
+    },
+    Complete,
+}
+
+// プレイリスト読み込み用レスポンス
+enum PlaylistLoadResponse {
+    PlaylistList(Vec<ListItem>),  // プレイリスト一覧
+    Progress { current: usize, total: usize, name: String },
+    PlaylistLoaded(CachedPlaylist),
+    Complete,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Focus {
+    RecentlyAdded,
+    Playlists,
+    Content,
+    Search,
+}
+
+
+pub struct App {
+    pub track: TrackInfo,
+    pub volume: i32,
+    pub shuffle: bool,
+    pub repeat: String,
+    pub message: Option<String>,
+    pub should_quit: bool,
+
+    pub focus: Focus,
+    pub recently_added: Vec<ListItem>,
+    pub recently_added_selected: usize,
+    pub recently_added_scroll: usize,
+    pub content_items: Vec<ListItem>,
+    pub content_selected: usize,
+    pub content_scroll: usize,
+    pub content_loading: bool,
+    pub content_title: String,  // アルバム/プレイリスト詳細表示時のタイトル
+    pub is_playlist_detail: bool,  // プレイリスト詳細表示中かどうか
+
+    pub playlists: Vec<ListItem>,
+    pub playlists_selected: usize,
+
+    pub search_mode: bool,
+    pub search_query: String,
+    pub search_results: Vec<ListItem>,
+
+    position_pending: bool,
+    full_pending: bool,
+    pub spinner_frame: usize,
+    pub level_meter: [u8; 5],
+    cmd_tx: Sender<Command>,
+    resp_rx: Receiver<Response>,
+
+    // キャッシュ関連
+    pub cache: TrackCache,
+    pub cache_loading: bool,
+    cache_resp_rx: Receiver<CacheResponse>,
+    pub playlist_cache: PlaylistCache,
+
+    // プレイリスト読み込み関連
+    pub playlist_loading: bool,
+    pub playlist_loading_progress: String,
+    playlist_load_rx: Receiver<PlaylistLoadResponse>,
+}
+
+impl App {
+    pub fn new() -> Self {
+        let (cmd_tx, cmd_rx) = mpsc::channel::<Command>();
+        let (resp_tx, resp_rx) = mpsc::channel::<Response>();
+        let (cache_resp_tx, cache_resp_rx) = mpsc::channel::<CacheResponse>();
+
+        // キャッシュを読み込み
+        let cache = TrackCache::load();
+
+        // 再生制御用バックグラウンドスレッド（軽量・高速）
+        thread::spawn(move || {
+            while let Ok(cmd) = cmd_rx.recv() {
+                match cmd {
+                    Command::RefreshPosition => {
+                        let (position, is_playing) = MusicController::get_position()
+                            .unwrap_or((0.0, false));
+                        let _ = resp_tx.send(Response::PositionUpdated(position, is_playing));
+                    }
+                    Command::RefreshFull => {
+                        let state = MusicController::get_all_state();
+                        match state {
+                            Ok(s) => {
+                                let _ = resp_tx.send(Response::StateUpdated(
+                                    s.track,
+                                    s.volume,
+                                    s.shuffle,
+                                    s.repeat,
+                                ));
+                            }
+                            Err(_) => {
+                                // エラー時もレスポンスを送信してpendingフラグをリセット
+                                let _ = resp_tx.send(Response::StateUpdated(
+                                    TrackInfo::default(),
+                                    50,
+                                    false,
+                                    "off".to_string(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // キャッシュ専用バックグラウンドスレッド（独立して自動実行・差分更新対応）
+        {
+            let cache_loaded = cache.loaded_tracks;
+            let cache_last_updated = cache.last_updated;
+            let cache_is_complete = cache.is_complete();
+            thread::spawn(move || {
+                let current_total = MusicController::get_total_track_count().unwrap_or(0);
+
+                if current_total == 0 {
+                    let _ = cache_resp_tx.send(CacheResponse::Complete);
+                    return;
+                }
+
+                // キャッシュが完了済みの場合は差分更新（upsert方式）
+                if cache_is_complete {
+                    if let Some(last_updated) = cache_last_updated {
+                        // last_updated の1日前から取得して upsert
+                        // これにより、キャッシュ構築中に追加された曲も確実に取得できる
+                        let cutoff = last_updated.saturating_sub(86400); // 1日 = 86400秒
+                        match MusicController::get_tracks_added_since(cutoff) {
+                            Ok(tracks) => {
+                                if !tracks.is_empty() {
+                                    let cached_tracks: Vec<CachedTrack> = tracks
+                                        .into_iter()
+                                        .map(|t| CachedTrack::new(
+                                            t.name, t.artist, t.album, t.date_added,
+                                            t.year, t.track_number, t.disc_number,
+                                            t.time, t.played_count, t.favorited,
+                                        ))
+                                        .collect();
+                                    let _ = cache_resp_tx.send(CacheResponse::Upsert {
+                                        tracks: cached_tracks,
+                                        total: current_total,
+                                    });
+                                }
+                            }
+                            Err(_) => {}
+                        }
+                    }
+
+                    let _ = cache_resp_tx.send(CacheResponse::Complete);
+                    return;
+                }
+
+                // キャッシュが未完了の場合は続きから読み込む
+                let mut cache_offset = cache_loaded;
+                const BATCH_SIZE: usize = 50;
+
+                while cache_offset < current_total {
+                    match MusicController::get_tracks_batch(cache_offset + 1, BATCH_SIZE) {
+                        Ok(tracks) => {
+                            let cached_tracks: Vec<CachedTrack> = tracks
+                                .into_iter()
+                                .map(|t| CachedTrack::new(
+                                    t.name, t.artist, t.album, t.date_added,
+                                    t.year, t.track_number, t.disc_number,
+                                    t.time, t.played_count, t.favorited,
+                                ))
+                                .collect();
+                            let batch_len = cached_tracks.len();
+                            cache_offset += batch_len;
+
+                            let _ = cache_resp_tx.send(CacheResponse::BatchLoaded {
+                                tracks: cached_tracks,
+                                loaded: cache_offset,
+                                total: current_total,
+                            });
+
+                            thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                        Err(_) => {
+                            break;
+                        }
+                    }
+                }
+                let _ = cache_resp_tx.send(CacheResponse::Complete);
+            });
+        }
+
+        // キャッシュからRecently Addedを初期化
+        let recently_added = Self::albums_to_list_items(&cache.get_recent_albums(30));
+        let cache_complete = cache.is_complete();
+
+        // プレイリスト読み込み用チャンネル
+        let (playlist_load_tx, playlist_load_rx) = mpsc::channel::<PlaylistLoadResponse>();
+
+        // プレイリストキャッシュを読み込み
+        let playlist_cache = PlaylistCache::load();
+        let playlist_cache_clone = playlist_cache.playlists.keys().cloned().collect::<std::collections::HashSet<_>>();
+
+        // プレイリスト読み込み用バックグラウンドスレッド
+        thread::spawn(move || {
+            // プレイリスト一覧を取得
+            let playlists = match MusicController::get_playlists() {
+                Ok(p) => p,
+                Err(_) => {
+                    let _ = playlist_load_tx.send(PlaylistLoadResponse::Complete);
+                    return;
+                }
+            };
+
+            // プレイリスト一覧を送信
+            let _ = playlist_load_tx.send(PlaylistLoadResponse::PlaylistList(playlists.clone()));
+
+            // キャッシュされていないプレイリストを抽出
+            let uncached: Vec<_> = playlists
+                .iter()
+                .filter(|p| !playlist_cache_clone.contains(&p.name))
+                .collect();
+
+            if uncached.is_empty() {
+                let _ = playlist_load_tx.send(PlaylistLoadResponse::Complete);
+                return;
+            }
+
+            let total = uncached.len();
+            for (i, playlist) in uncached.iter().enumerate() {
+                let _ = playlist_load_tx.send(PlaylistLoadResponse::Progress {
+                    current: i + 1,
+                    total,
+                    name: playlist.name.clone(),
+                });
+
+                // プレイリストのトラックを取得
+                if let Ok(tracks) = MusicController::get_playlist_tracks(&playlist.name) {
+                    let cached_tracks: Vec<CachedPlaylistTrack> = tracks
+                        .iter()
+                        .map(|t| CachedPlaylistTrack {
+                            name: t.name.clone(),
+                            artist: t.artist.clone(),
+                            album: t.album.clone(),
+                            year: t.year,
+                            time: t.time.clone(),
+                            played_count: t.played_count,
+                            favorited: t.favorited,
+                        })
+                        .collect();
+                    let cached_playlist = CachedPlaylist {
+                        name: playlist.name.clone(),
+                        tracks: cached_tracks,
+                    };
+                    let _ = playlist_load_tx.send(PlaylistLoadResponse::PlaylistLoaded(cached_playlist));
+                }
+            }
+            let _ = playlist_load_tx.send(PlaylistLoadResponse::Complete);
+        });
+
+        // キャッシュからプレイリスト名を取得（起動時は空、バックグラウンドで読み込まれる）
+        let playlists: Vec<ListItem> = playlist_cache.playlists.keys().map(|name| {
+            ListItem {
+                name: name.clone(),
+                artist: String::new(),
+                album: String::new(),
+                time: String::new(),
+                year: 0,
+                track_number: 0,
+                played_count: 0,
+                favorited: false,
+            }
+        }).collect();
+
+        Self {
+            track: TrackInfo::default(),
+            volume: 50,
+            shuffle: false,
+            repeat: "off".to_string(),
+            message: None,
+            should_quit: false,
+            focus: Focus::RecentlyAdded,
+            recently_added,
+            recently_added_selected: 0,
+            recently_added_scroll: 0,
+            content_items: Vec::new(),
+            content_selected: 0,
+            content_scroll: 0,
+            content_loading: false,
+            content_title: String::new(),
+            is_playlist_detail: false,
+            playlists,
+            playlists_selected: 0,
+            search_mode: false,
+            search_query: String::new(),
+            search_results: Vec::new(),
+            position_pending: false,
+            full_pending: false,
+            spinner_frame: 0,
+            level_meter: [0; 5],
+            cmd_tx,
+            resp_rx,
+            cache,
+            cache_loading: !cache_complete,
+            cache_resp_rx,
+            playlist_cache,
+            playlist_loading: true,
+            playlist_loading_progress: String::new(),
+            playlist_load_rx,
+        }
+    }
+
+    fn albums_to_list_items(albums: &[(String, String)]) -> Vec<ListItem> {
+        albums
+            .iter()
+            .map(|(album, artist)| ListItem {
+                name: album.clone(),
+                artist: artist.clone(),
+                album: album.clone(),
+                time: String::new(),
+                year: 0,
+                track_number: 0,
+                played_count: 0,
+                favorited: false,
+            })
+            .collect()
+    }
+
+    /// スピナーフレームを更新
+    pub fn update_spinner(&mut self) {
+        self.spinner_frame = (self.spinner_frame + 1) % 10;
+    }
+
+    /// レベルメーターを更新（再生中のみアニメーション）
+    pub fn update_level_meter(&mut self) {
+        if self.track.is_playing {
+            let mut rng = rand::thread_rng();
+            for i in 0..5 {
+                // 現在の値から±2の範囲でランダムに変動（滑らかに）
+                let current = self.level_meter[i] as i16;
+                let delta: i16 = rng.gen_range(-2..=3);
+                let new_val = (current + delta).clamp(0, 7) as u8;
+                self.level_meter[i] = new_val;
+            }
+        } else {
+            // 停止中は徐々に下がる
+            for i in 0..5 {
+                if self.level_meter[i] > 0 {
+                    self.level_meter[i] -= 1;
+                }
+            }
+        }
+    }
+
+    /// バックグラウンドからのレスポンスを処理（再生制御）
+    pub fn poll_responses(&mut self) {
+        loop {
+            match self.resp_rx.try_recv() {
+                Ok(resp) => match resp {
+                    Response::PositionUpdated(position, is_playing) => {
+                        self.track.position = position;
+                        self.track.is_playing = is_playing;
+                        self.position_pending = false;
+                    }
+                    Response::StateUpdated(track, volume, shuffle, repeat) => {
+                        self.track = track;
+                        self.volume = volume;
+                        self.shuffle = shuffle;
+                        self.repeat = repeat;
+                        self.full_pending = false;
+                    }
+                },
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => break,
+            }
+        }
+    }
+
+    /// キャッシュスレッドからのレスポンスを処理
+    pub fn poll_cache_responses(&mut self) {
+        loop {
+            match self.cache_resp_rx.try_recv() {
+                Ok(resp) => match resp {
+                    CacheResponse::BatchLoaded { tracks, loaded, total } => {
+                        self.cache.add_tracks(tracks);
+                        self.cache.total_tracks = total;
+
+                        // Recently Addedを更新（キャッシュから最新30アルバム）
+                        self.recently_added = Self::albums_to_list_items(&self.cache.get_recent_albums(30));
+
+                        // 定期的に保存（100曲ごと）、完了時はタイムスタンプも更新
+                        if loaded >= total {
+                            self.cache.update_timestamp();
+                            let _ = self.cache.save();
+                        } else if loaded % 100 == 0 {
+                            let _ = self.cache.save();
+                        }
+                    }
+                    CacheResponse::Upsert { tracks, total } => {
+                        // 差分更新（upsert）
+                        let added = self.cache.upsert_tracks(tracks);
+                        self.cache.total_tracks = total;
+
+                        // Recently Addedを更新
+                        self.recently_added = Self::albums_to_list_items(&self.cache.get_recent_albums(30));
+
+                        if added > 0 {
+                            self.message = Some(format!("{} new tracks added", added));
+                            // 新規トラックが追加された場合のみタイムスタンプを更新
+                            self.cache.update_timestamp();
+                            let _ = self.cache.save();
+                        }
+                    }
+                    CacheResponse::Complete => {
+                        self.cache_loading = false;
+                        // タイムスタンプは更新しない（BatchLoaded/Upsertで更新済み）
+                    }
+                },
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    self.cache_loading = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    /// プレイリスト読み込みスレッドからのレスポンスを処理
+    pub fn poll_playlist_responses(&mut self) {
+        loop {
+            match self.playlist_load_rx.try_recv() {
+                Ok(resp) => match resp {
+                    PlaylistLoadResponse::PlaylistList(items) => {
+                        // プレイリスト一覧を更新
+                        self.playlists = items;
+                    }
+                    PlaylistLoadResponse::Progress { current, total, name } => {
+                        self.playlist_loading_progress = format!("Loading playlists ({}/{}) {}...", current, total, name);
+                    }
+                    PlaylistLoadResponse::PlaylistLoaded(playlist) => {
+                        self.playlist_cache.insert(playlist);
+                    }
+                    PlaylistLoadResponse::Complete => {
+                        self.playlist_loading = false;
+                        self.playlist_loading_progress.clear();
+                        // キャッシュを保存
+                        let _ = self.playlist_cache.save();
+                    }
+                },
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    self.playlist_loading = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    /// 状態を非同期で更新
+    pub fn refresh_position(&mut self) {
+        if !self.position_pending {
+            self.position_pending = true;
+            let _ = self.cmd_tx.send(Command::RefreshPosition);
+        }
+    }
+
+    pub fn refresh_full(&mut self) {
+        // pendingチェックを削除 - 2秒ごとにしか呼ばれないので常に送信
+        let _ = self.cmd_tx.send(Command::RefreshFull);
+    }
+
+
+    pub fn play_pause(&mut self) {
+        self.track.is_playing = !self.track.is_playing;
+        if let Err(e) = MusicController::play_pause() {
+            self.message = Some(format!("Error: {}", e));
+        }
+    }
+
+    pub fn next_track(&mut self) {
+        if let Err(e) = MusicController::next_track() {
+            self.message = Some(format!("Error: {}", e));
+        }
+    }
+
+    pub fn previous_track(&mut self) {
+        if let Err(e) = MusicController::previous_track() {
+            self.message = Some(format!("Error: {}", e));
+        }
+    }
+
+    pub fn toggle_shuffle(&mut self) {
+        // 同期的に実行して即座にフィードバック
+        match MusicController::toggle_shuffle() {
+            Ok(state) => {
+                self.shuffle = state;
+            }
+            Err(e) => {
+                self.message = Some(format!("Error: {}", e));
+            }
+        }
+    }
+
+    pub fn cycle_repeat(&mut self) {
+        // 同期的に実行して即座にフィードバック
+        match MusicController::cycle_repeat() {
+            Ok(mode) => {
+                self.repeat = mode;
+            }
+            Err(e) => {
+                self.message = Some(format!("Error: {}", e));
+            }
+        }
+    }
+
+    pub fn seek_backward(&mut self) {
+        self.track.position = (self.track.position - 10.0).max(0.0);
+        if let Err(e) = MusicController::seek_backward() {
+            self.message = Some(format!("Error: {}", e));
+        }
+    }
+
+    pub fn seek_forward(&mut self) {
+        self.track.position = (self.track.position + 10.0).min(self.track.duration);
+        if let Err(e) = MusicController::seek_forward() {
+            self.message = Some(format!("Error: {}", e));
+        }
+    }
+
+    pub fn focus_next(&mut self) {
+        self.focus = match self.focus {
+            Focus::RecentlyAdded => Focus::Playlists,
+            Focus::Playlists => Focus::Content,
+            Focus::Content => Focus::RecentlyAdded,
+            Focus::Search => Focus::Content,
+        };
+    }
+
+    pub fn recently_added_up(&mut self) {
+        if self.recently_added_selected > 0 {
+            self.recently_added_selected -= 1;
+            self.adjust_recently_added_scroll();
+            self.load_selected_album_tracks();
+        }
+    }
+
+    pub fn recently_added_down(&mut self) {
+        if self.recently_added_selected < self.recently_added.len().saturating_sub(1) {
+            self.recently_added_selected += 1;
+            self.adjust_recently_added_scroll();
+            self.load_selected_album_tracks();
+        }
+    }
+
+    /// 選択中のアルバムのトラックを読み込む
+    pub fn load_selected_album_tracks(&mut self) {
+        if let Some(album_item) = self.recently_added.get(self.recently_added_selected) {
+            let album_name = &album_item.album;
+            let tracks = self.cache.get_tracks_by_album(album_name);
+
+            // 年を取得（最初のトラックから）
+            let year = tracks.first().map(|t| t.year).unwrap_or(0);
+            let year_str = if year > 0 { format!(" ({})", year) } else { String::new() };
+
+            self.content_title = format!("{} - {}{}", album_name, album_item.artist, year_str);
+            self.is_playlist_detail = false;
+            self.content_items = tracks
+                .into_iter()
+                .map(|t| ListItem {
+                    name: t.name.clone(),
+                    artist: t.artist.clone(),
+                    album: t.album.clone(),
+                    time: t.time.clone(),
+                    year: t.year,
+                    track_number: t.track_number,
+                    played_count: t.played_count,
+                    favorited: t.favorited,
+                })
+                .collect();
+            self.content_selected = 0;
+            self.content_scroll = 0;
+        }
+    }
+
+    /// 選択中のプレイリストのトラックを読み込む
+    pub fn load_selected_playlist_tracks(&mut self) {
+        if let Some(playlist_item) = self.playlists.get(self.playlists_selected) {
+            let playlist_name = playlist_item.name.clone();
+            self.content_title = playlist_name.clone();
+            self.is_playlist_detail = true;
+
+            // キャッシュを確認
+            if let Some(cached) = self.playlist_cache.get(&playlist_name) {
+                // キャッシュから読み込み
+                self.content_items = cached.tracks.iter().map(|t| ListItem {
+                    name: t.name.clone(),
+                    artist: t.artist.clone(),
+                    album: t.album.clone(),
+                    year: t.year,
+                    time: t.time.clone(),
+                    played_count: t.played_count,
+                    favorited: t.favorited,
+                    track_number: 0,
+                }).collect();
+            } else {
+                // キャッシュになければAppleScriptで取得
+                self.content_loading = true;
+                match MusicController::get_playlist_tracks(&playlist_name) {
+                    Ok(tracks) => {
+                        // キャッシュに保存
+                        let cached_tracks: Vec<CachedPlaylistTrack> = tracks.iter().map(|t| {
+                            CachedPlaylistTrack {
+                                name: t.name.clone(),
+                                artist: t.artist.clone(),
+                                album: t.album.clone(),
+                                year: t.year,
+                                time: t.time.clone(),
+                                played_count: t.played_count,
+                                favorited: t.favorited,
+                            }
+                        }).collect();
+                        let cached_playlist = CachedPlaylist {
+                            name: playlist_name.clone(),
+                            tracks: cached_tracks,
+                        };
+                        self.playlist_cache.insert(cached_playlist);
+                        let _ = self.playlist_cache.save();
+
+                        self.content_items = tracks;
+                    }
+                    Err(_) => {
+                        self.content_items = Vec::new();
+                    }
+                }
+                self.content_loading = false;
+            }
+            self.content_selected = 0;
+            self.content_scroll = 0;
+        }
+    }
+
+    fn adjust_recently_added_scroll(&mut self) {
+        let visible = 9usize; // カード高さ12 - タイトル1 - ボーダー2 = 9行
+        if self.recently_added_selected < self.recently_added_scroll {
+            self.recently_added_scroll = self.recently_added_selected;
+        } else if self.recently_added_selected >= self.recently_added_scroll + visible {
+            self.recently_added_scroll = self.recently_added_selected - visible + 1;
+        }
+    }
+
+    pub fn playlists_up(&mut self) {
+        if self.playlists_selected > 0 {
+            self.playlists_selected -= 1;
+            self.load_selected_playlist_tracks();
+        }
+    }
+
+    pub fn playlists_down(&mut self) {
+        if self.playlists_selected < self.playlists.len().saturating_sub(1) {
+            self.playlists_selected += 1;
+            self.load_selected_playlist_tracks();
+        }
+    }
+
+    pub fn content_up(&mut self) {
+        let items = if self.search_mode { &self.search_results } else { &self.content_items };
+        if self.content_selected > 0 {
+            self.content_selected -= 1;
+        }
+        self.adjust_scroll(items.len());
+    }
+
+    pub fn content_down(&mut self) {
+        let items = if self.search_mode { &self.search_results } else { &self.content_items };
+        let len = items.len();
+        if self.content_selected < len.saturating_sub(1) {
+            self.content_selected += 1;
+        }
+        self.adjust_scroll(len);
+    }
+
+    fn adjust_scroll(&mut self, _len: usize) {
+        let visible = 15usize;
+        if self.content_selected < self.content_scroll {
+            self.content_scroll = self.content_selected;
+        } else if self.content_selected >= self.content_scroll + visible {
+            self.content_scroll = self.content_selected - visible + 1;
+        }
+    }
+
+    pub fn play_selected(&mut self) {
+        if self.search_mode {
+            // 検索結果からの再生
+            if let Some(item) = self.search_results.get(self.content_selected) {
+                let result = MusicController::play_track(&item.name, &item.artist);
+                match result {
+                    Ok(_) => {
+                        self.message = Some(format!("▶ {}", item.name));
+                    }
+                    Err(e) => {
+                        self.message = Some(format!("Error: {}", e));
+                    }
+                }
+            }
+        } else if self.is_playlist_detail {
+            // プレイリスト詳細からの再生
+            if let Some(playlist_item) = self.playlists.get(self.playlists_selected) {
+                let result = MusicController::play_playlist_from_track(
+                    &playlist_item.name,
+                    self.content_selected
+                );
+                match result {
+                    Ok(_) => {
+                        if let Some(item) = self.content_items.get(self.content_selected) {
+                            self.message = Some(format!("▶ {}", item.name));
+                        }
+                    }
+                    Err(e) => {
+                        self.message = Some(format!("Error: {}", e));
+                    }
+                }
+            }
+        } else {
+            // アルバム詳細からの再生（非同期で実行）
+            if let Some(item) = self.content_items.get(self.content_selected) {
+                if let Some(album_item) = self.recently_added.get(self.recently_added_selected) {
+                    let album = album_item.album.clone();
+                    let name = item.name.clone();
+                    let artist = item.artist.clone();
+                    self.message = Some(format!("Loading {}...", name));
+
+                    // バックグラウンドで再生開始
+                    thread::spawn(move || {
+                        let _ = MusicController::play_album_from_track(&album, &name, &artist);
+                    });
+                }
+            }
+        }
+    }
+
+    pub fn start_search(&mut self) {
+        self.search_mode = true;
+        self.search_query.clear();
+        self.search_results.clear();
+        self.focus = Focus::Search;
+    }
+
+    pub fn cancel_search(&mut self) {
+        self.search_mode = false;
+        self.search_query.clear();
+        self.search_results.clear();
+        self.focus = Focus::RecentlyAdded;
+    }
+
+    pub fn search_input(&mut self, c: char) {
+        self.search_query.push(c);
+        self.do_search();
+    }
+
+    pub fn search_backspace(&mut self) {
+        self.search_query.pop();
+        if self.search_query.is_empty() {
+            self.search_results.clear();
+        } else {
+            self.do_search();
+        }
+    }
+
+    fn do_search(&mut self) {
+        if self.search_query.len() >= 3 {
+            // キャッシュから検索（高速・同期）
+            let results: Vec<ListItem> = self.cache
+                .search(&self.search_query)
+                .into_iter()
+                .map(|t| ListItem {
+                    name: t.name.clone(),
+                    artist: t.artist.clone(),
+                    album: t.album.clone(),
+                    time: t.time.clone(),
+                    year: t.year,
+                    track_number: t.track_number,
+                    played_count: t.played_count,
+                    favorited: t.favorited,
+                })
+                .collect();
+            self.search_results = results;
+            self.content_selected = 0;
+            self.content_scroll = 0;
+        }
+    }
+
+    pub fn confirm_search(&mut self) {
+        if !self.search_results.is_empty() {
+            // 選択した項目を再生
+            self.play_selected();
+            // 検索モードを終了
+            self.search_mode = false;
+            self.focus = Focus::Content;
+        }
+    }
+}
