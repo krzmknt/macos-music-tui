@@ -22,20 +22,20 @@ cargo run
 
 ### Key Bindings
 
-| Key               | Function                              |
-| ----------------- | ------------------------------------- |
-| `Space`           | Play/Pause                            |
-| `n`               | Next track                            |
-| `p`               | Previous track                        |
-| `←` `→`           | Seek 10 seconds                       |
-| `s`               | Toggle shuffle                        |
-| `r`               | Cycle repeat mode (off → all → one)   |
-| `j` `k` / `↑` `↓` | Navigate list                         |
-| `Tab`             | Switch focus                          |
-| `Enter`           | Play selected item                    |
-| `/`               | Start search mode                     |
-| `Esc`             | Cancel search                         |
-| `q`               | Quit                                  |
+| Key               | Function                            |
+| ----------------- | ----------------------------------- |
+| `Space`           | Play/Pause                          |
+| `n`               | Next track                          |
+| `p`               | Previous track                      |
+| `←` `→`           | Seek 10 seconds                     |
+| `s`               | Toggle shuffle                      |
+| `r`               | Cycle repeat mode (off → all → one) |
+| `j` `k` / `↑` `↓` | Navigate list                       |
+| `Tab`             | Switch focus                        |
+| `Enter`           | Play selected item                  |
+| `/`               | Start search mode                   |
+| `Esc`             | Cancel search                       |
+| `q`               | Quit                                |
 
 ## Architecture
 
@@ -97,18 +97,18 @@ All track metadata is cached locally for fast search.
 
 Each track contains the following information:
 
-| Field          | Type   | Description   | Example                                 |
-| -------------- | ------ | ------------- | --------------------------------------- |
-| `name`         | String | Track name    | "Yesterday"                             |
-| `artist`       | String | Artist name   | "The Beatles"                           |
-| `album`        | String | Album name    | "Help!"                                 |
-| `date_added`   | String | Date added    | "Sunday, September 13, 2015 at 3:44:42" |
-| `year`         | u32    | Release year  | 1965                                    |
-| `track_number` | u32    | Track number  | 13                                      |
-| `disc_number`  | u32    | Disc number   | 1                                       |
-| `time`         | String | Duration      | "2:05"                                  |
-| `played_count` | u32    | Play count    | 42                                      |
-| `favorited`    | bool   | Favorited     | true                                    |
+| Field          | Type   | Description  | Example                                 |
+| -------------- | ------ | ------------ | --------------------------------------- |
+| `name`         | String | Track name   | "Yesterday"                             |
+| `artist`       | String | Artist name  | "The Beatles"                           |
+| `album`        | String | Album name   | "Help!"                                 |
+| `date_added`   | String | Date added   | "Sunday, September 13, 2015 at 3:44:42" |
+| `year`         | u32    | Release year | 1965                                    |
+| `track_number` | u32    | Track number | 13                                      |
+| `disc_number`  | u32    | Disc number  | 1                                       |
+| `time`         | String | Duration     | "2:05"                                  |
+| `played_count` | u32    | Play count   | 42                                      |
+| `favorited`    | bool   | Favorited    | true                                    |
 
 ```json
 {
@@ -186,61 +186,12 @@ src/
 └────────────────────────────────────────────────────────────┘
 ```
 
-## Technical Notes
-
-### Playlist/Album Playback Context
-
-When playing a playlist or album from this TUI, we use a hybrid approach combining AppleScript and macOS Accessibility API.
-
-#### The Problem
-
-Music.app's AppleScript API has a significant limitation: any track played via AppleScript goes into "AutoPlay" mode, where the next track is selected from the entire library rather than from the album or playlist context.
-
-```applescript
--- All of these result in AutoPlay mode:
-play track 1 of playlist "My Playlist"
-play (every track whose album is "Album Name")
-play playlist "My Playlist"
-```
-
-This means after a song ends, the next song is not from the same album/playlist, breaking the expected listening experience.
-
-#### The Workaround
-
-To achieve proper playlist/album context playback:
-
-1. **AppleScript (System Events)**: Select the playlist in Music.app's sidebar
-   ```applescript
-   tell application "System Events"
-       tell process "Music"
-           select row (matching playlist name) of sidebar
-       end tell
-   end tell
-   ```
-
-2. **Accessibility API**: Click the "Play" button in the playlist view
-   ```rust
-   // Using macOS Accessibility framework
-   play_button.perform_action("AXPress")
-   ```
-
-This mimics what a user would do: select a playlist, then click Play. The result is proper playlist context where the next track comes from the same playlist.
-
-#### Trade-offs
-
-- **Requires Music.app window to exist** (but not be visible or frontmost)
-- **Slightly slower** than direct AppleScript playback
-- **More complex implementation** using two different APIs
-
-This is a workaround for a limitation in Music.app's AppleScript API and may break if Apple changes the UI structure.
-
 ## Dependencies
 
 - [ratatui](https://github.com/ratatui-org/ratatui) - TUI framework
 - [crossterm](https://github.com/crossterm-rs/crossterm) - Terminal control
 - [serde](https://github.com/serde-rs/serde) - Serialization/Deserialization
 - [anyhow](https://github.com/dtolnay/anyhow) - Error handling
-- [accessibility](https://crates.io/crates/accessibility) - macOS Accessibility API bindings (for playlist context playback)
 
 ## License
 

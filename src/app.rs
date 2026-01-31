@@ -70,6 +70,7 @@ pub struct App {
 
     pub playlists: Vec<ListItem>,
     pub playlists_selected: usize,
+    pub playlists_scroll: usize,
 
     pub search_mode: bool,
     pub search_query: String,
@@ -96,6 +97,10 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
+        // Initialize Music window off-screen at startup
+        // This ensures the window exists before any playlist playback
+        accessibility::init_music_window_offscreen();
+
         let (cmd_tx, cmd_rx) = mpsc::channel::<Command>();
         let (resp_tx, resp_rx) = mpsc::channel::<Response>();
         let (cache_resp_tx, cache_resp_rx) = mpsc::channel::<CacheResponse>();
@@ -318,6 +323,7 @@ impl App {
             is_playlist_detail: false,
             playlists,
             playlists_selected: 0,
+            playlists_scroll: 0,
             search_mode: false,
             search_query: String::new(),
             search_results: Vec::new(),
@@ -678,6 +684,7 @@ impl App {
     pub fn playlists_up(&mut self) {
         if self.playlists_selected > 0 {
             self.playlists_selected -= 1;
+            self.adjust_playlists_scroll();
             self.load_selected_playlist_tracks();
         }
     }
@@ -685,7 +692,17 @@ impl App {
     pub fn playlists_down(&mut self) {
         if self.playlists_selected < self.playlists.len().saturating_sub(1) {
             self.playlists_selected += 1;
+            self.adjust_playlists_scroll();
             self.load_selected_playlist_tracks();
+        }
+    }
+
+    fn adjust_playlists_scroll(&mut self) {
+        let visible = 11usize; // カード高さ14 - タイトル1 - ボーダー2 = 11行
+        if self.playlists_selected < self.playlists_scroll {
+            self.playlists_scroll = self.playlists_selected;
+        } else if self.playlists_selected >= self.playlists_scroll + visible {
+            self.playlists_scroll = self.playlists_selected - visible + 1;
         }
     }
 
@@ -730,27 +747,29 @@ impl App {
                 }
             }
         } else if self.is_playlist_detail {
-            // プレイリスト詳細からの再生 (Accessibility APIでプレイリストコンテキストを維持)
-            if let Some(playlist_item) = self.playlists.get(self.playlists_selected) {
-                let playlist_name = playlist_item.name.clone();
-                self.message = Some(format!("Loading playlist {}...", playlist_name));
+            // プレイリスト詳細からの再生 - 選択した曲を再生
+            if let Some(item) = self.content_items.get(self.content_selected) {
+                let name = item.name.clone();
+                let artist = item.artist.clone();
+                self.message = Some(format!("▶ {}", name));
 
-                // バックグラウンドでプレイリスト再生
-                thread::spawn(move || {
-                    let _ = accessibility::play_playlist_with_context(&playlist_name);
-                });
+                // 曲単体を再生
+                let result = MusicController::play_track(&name, &artist);
+                if let Err(e) = result {
+                    self.message = Some(format!("Error: {}", e));
+                }
             }
         } else {
-            // アルバム詳細からの再生 (Accessibility APIでアルバムコンテキストを維持)
-            if let Some(_item) = self.content_items.get(self.content_selected) {
-                if let Some(album_item) = self.recently_added.get(self.recently_added_selected) {
-                    let album = album_item.album.clone();
-                    self.message = Some(format!("Loading album {}...", album));
+            // アルバム詳細からの再生 - 選択した曲を再生
+            if let Some(item) = self.content_items.get(self.content_selected) {
+                let name = item.name.clone();
+                let artist = item.artist.clone();
+                self.message = Some(format!("▶ {}", name));
 
-                    // バックグラウンドでアルバム再生
-                    thread::spawn(move || {
-                        let _ = accessibility::play_album_with_context(&album);
-                    });
+                // 曲単体を再生（AppleScriptで直接再生）
+                let result = MusicController::play_track(&name, &artist);
+                if let Err(e) = result {
+                    self.message = Some(format!("Error: {}", e));
                 }
             }
         }
