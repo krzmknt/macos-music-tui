@@ -244,55 +244,6 @@ impl MusicController {
         Self::run_script(&script)?;
         Ok(())
     }
-
-    /// アルバムの特定トラックを再生
-    /// 注意: AutoPlay モードになるため、n/p はアルバム内ではなくライブラリ全体から選曲される
-    pub fn play_album_from_track(album: &str, track_name: &str, track_artist: &str) -> Result<()> {
-        let escaped_album = album.replace("\"", "\\\"");
-        let escaped_name = track_name.replace("\"", "\\\"");
-        let escaped_artist = track_artist.replace("\"", "\\\"");
-
-        let script = format!(
-            r#"tell application "Music"
-    set albumTracks to (every track of library playlist 1 whose album is "{}" and name is "{}" and artist is "{}")
-    if (count of albumTracks) > 0 then
-        play item 1 of albumTracks
-    else
-        -- 完全一致しない場合はアルバム名とトラック名のみで検索
-        set albumTracks to (every track of library playlist 1 whose album is "{}" and name is "{}")
-        if (count of albumTracks) > 0 then
-            play item 1 of albumTracks
-        end if
-    end if
-end tell"#,
-            escaped_album, escaped_name, escaped_artist, escaped_album, escaped_name
-        );
-        Self::run_script(&script)?;
-        Ok(())
-    }
-
-    /// プレイリストの特定トラックを再生
-    /// 注意: AutoPlay モードになるため、n/p はプレイリスト内ではなくライブラリ全体から選曲される
-    pub fn play_playlist_from_track(playlist_name: &str, track_index: usize) -> Result<()> {
-        let escaped = playlist_name.replace("\"", "\\\"");
-        let script = format!(
-            r#"tell application "Music"
-    set pl to playlist "{}"
-    set trackCount to count of tracks of pl
-    set targetIndex to {}
-    if targetIndex > trackCount then
-        set targetIndex to trackCount
-    end if
-    if targetIndex < 1 then
-        set targetIndex to 1
-    end if
-    play track targetIndex of pl
-end tell"#,
-            escaped, track_index + 1
-        );
-        Self::run_script(&script)?;
-        Ok(())
-    }
 }
 
 #[derive(Debug, Default, Clone)]

@@ -2,6 +2,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 use rand::Rng;
 
+use crate::accessibility;
 use crate::cache::{CachedTrack, CachedPlaylist, CachedPlaylistTrack, PlaylistCache, TrackCache};
 use crate::music::{ListItem, MusicController, TrackInfo};
 
@@ -729,35 +730,26 @@ impl App {
                 }
             }
         } else if self.is_playlist_detail {
-            // プレイリスト詳細からの再生
+            // プレイリスト詳細からの再生 (Accessibility APIでプレイリストコンテキストを維持)
             if let Some(playlist_item) = self.playlists.get(self.playlists_selected) {
-                let result = MusicController::play_playlist_from_track(
-                    &playlist_item.name,
-                    self.content_selected
-                );
-                match result {
-                    Ok(_) => {
-                        if let Some(item) = self.content_items.get(self.content_selected) {
-                            self.message = Some(format!("▶ {}", item.name));
-                        }
-                    }
-                    Err(e) => {
-                        self.message = Some(format!("Error: {}", e));
-                    }
-                }
+                let playlist_name = playlist_item.name.clone();
+                self.message = Some(format!("Loading playlist {}...", playlist_name));
+
+                // バックグラウンドでプレイリスト再生
+                thread::spawn(move || {
+                    let _ = accessibility::play_playlist_with_context(&playlist_name);
+                });
             }
         } else {
-            // アルバム詳細からの再生（非同期で実行）
-            if let Some(item) = self.content_items.get(self.content_selected) {
+            // アルバム詳細からの再生 (Accessibility APIでアルバムコンテキストを維持)
+            if let Some(_item) = self.content_items.get(self.content_selected) {
                 if let Some(album_item) = self.recently_added.get(self.recently_added_selected) {
                     let album = album_item.album.clone();
-                    let name = item.name.clone();
-                    let artist = item.artist.clone();
-                    self.message = Some(format!("Loading {}...", name));
+                    self.message = Some(format!("Loading album {}...", album));
 
-                    // バックグラウンドで再生開始
+                    // バックグラウンドでアルバム再生
                     thread::spawn(move || {
-                        let _ = MusicController::play_album_from_track(&album, &name, &artist);
+                        let _ = accessibility::play_album_with_context(&album);
                     });
                 }
             }
