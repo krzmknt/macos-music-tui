@@ -1,12 +1,14 @@
-// Accessibility API for Music.app control
-// Uses hybrid approach: AppleScript for selection + Accessibility API for Play button
-// Music process is hidden (visible=false) - no window appears on screen
+// Music.app control using temporary playlist + sidebar selection
+// Creates a rotated playlist, selects it in sidebar, clicks Play, then deletes it
+// This ensures proper queue behavior
 
 use accessibility::{AXAttribute, AXUIElement};
 use core_foundation::array::CFArray;
 use core_foundation::base::{CFType, TCFType};
 use core_foundation::string::CFString;
 use std::process::Command;
+
+const TEMP_PLAYLIST_NAME: &str = "___TempQueue___";
 
 /// Initialize Music app (launch only) at app startup
 pub fn init_music_window_offscreen() {
@@ -26,22 +28,22 @@ fn get_music_pid() -> Option<i32> {
     pid_str.trim().parse().ok()
 }
 
-fn get_element_title(element: &AXUIElement) -> Option<String> {
-    element
-        .attribute(&AXAttribute::title())
-        .ok()
-        .map(|t| unsafe {
-            let cf_str = CFString::wrap_under_get_rule(t.as_CFTypeRef() as _);
-            cf_str.to_string()
-        })
-}
-
 fn get_element_role(element: &AXUIElement) -> Option<String> {
     element
         .attribute(&AXAttribute::role())
         .ok()
         .map(|r| unsafe {
             let cf_str = CFString::wrap_under_get_rule(r.as_CFTypeRef() as _);
+            cf_str.to_string()
+        })
+}
+
+fn get_element_title(element: &AXUIElement) -> Option<String> {
+    element
+        .attribute(&AXAttribute::title())
+        .ok()
+        .map(|t| unsafe {
+            let cf_str = CFString::wrap_under_get_rule(t.as_CFTypeRef() as _);
             cf_str.to_string()
         })
 }
@@ -177,42 +179,58 @@ fn click_play_button() -> Result<(), String> {
     click_element(&play_button)
 }
 
-/// Play a playlist with proper context (queue, not AutoPlay)
-pub fn play_playlist_with_context(playlist_name: &str) -> Result<(), String> {
-    ensure_music_hidden_with_window()?;
-    select_sidebar_item(playlist_name)?;
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    click_play_button()?;
-    Ok(())
-}
-
-/// Play an album with proper context (queue, not AutoPlay)
-pub fn play_album_with_context(album_name: &str) -> Result<(), String> {
-    ensure_music_hidden_with_window()?;
-    select_sidebar_item("Albums")?;
-    std::thread::sleep(std::time::Duration::from_millis(100));
-
-    // Reveal AND select the album's first track
+/// Delete the temporary playlist
+fn delete_temp_playlist() {
     let script = format!(
         r#"tell application "Music"
-            set albumTracks to (every track of library playlist 1 whose album is "{}")
-            if (count of albumTracks) > 0 then
-                set firstTrack to item 1 of albumTracks
-                reveal firstTrack
-                -- Try to select the track for playback context
-                try
-                    set selection to firstTrack
-                end try
-            else
-                error "Album not found"
-            end if
-        end tell
-        tell application "System Events"
-            tell process "Music"
-                set visible to false
-            end tell
+            try
+                delete (first playlist whose name is "{}")
+            end try
         end tell"#,
-        album_name.replace('"', "\\\"")
+        TEMP_PLAYLIST_NAME
+    );
+    let _ = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output();
+}
+
+/// Create a temporary playlist with rotated tracks
+fn create_rotated_playlist_from_playlist(playlist_name: &str, start_index: usize) -> Result<(), String> {
+    let script = format!(
+        r#"tell application "Music"
+            -- Get source playlist tracks
+            set sourcePlaylist to first playlist whose name is "{playlist_name}"
+            set allTracks to tracks of sourcePlaylist
+            set trackCount to count of allTracks
+
+            if trackCount = 0 then
+                error "Playlist is empty"
+            end if
+
+            -- Delete existing temp playlist if exists
+            try
+                delete (first playlist whose name is "{temp_name}")
+            end try
+
+            -- Create temp playlist with rotated track order
+            set tempPlaylist to make new playlist with properties {{name:"{temp_name}"}}
+
+            -- Add tracks from N to end
+            repeat with i from {start} to trackCount
+                duplicate (item i of allTracks) to tempPlaylist
+            end repeat
+
+            -- Add tracks from 1 to N-1 (if N > 1)
+            if {start} > 1 then
+                repeat with i from 1 to ({start} - 1)
+                    duplicate (item i of allTracks) to tempPlaylist
+                end repeat
+            end if
+        end tell"#,
+        playlist_name = playlist_name.replace('"', "\\\""),
+        temp_name = TEMP_PLAYLIST_NAME,
+        start = start_index + 1  // AppleScript is 1-indexed
     );
 
     let output = Command::new("osascript")
@@ -221,12 +239,101 @@ pub fn play_album_with_context(album_name: &str) -> Result<(), String> {
         .output()
         .map_err(|e| format!("Failed: {}", e))?;
 
-    if !output.status.success() {
+    if output.status.success() {
+        Ok(())
+    } else {
         let err = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("{}", err.trim()));
+        Err(format!("{}", err.trim()))
     }
+}
 
-    std::thread::sleep(std::time::Duration::from_millis(150));
+/// Create a temporary playlist with rotated tracks from an album
+fn create_rotated_playlist_from_album(album_name: &str, start_index: usize) -> Result<(), String> {
+    let script = format!(
+        r#"tell application "Music"
+            -- Get album tracks
+            set allTracks to (every track of library playlist 1 whose album is "{album_name}")
+            set trackCount to count of allTracks
+
+            if trackCount = 0 then
+                error "Album not found"
+            end if
+
+            -- Delete existing temp playlist if exists
+            try
+                delete (first playlist whose name is "{temp_name}")
+            end try
+
+            -- Create temp playlist with rotated track order
+            set tempPlaylist to make new playlist with properties {{name:"{temp_name}"}}
+
+            -- Add tracks from N to end
+            repeat with i from {start} to trackCount
+                duplicate (item i of allTracks) to tempPlaylist
+            end repeat
+
+            -- Add tracks from 1 to N-1 (if N > 1)
+            if {start} > 1 then
+                repeat with i from 1 to ({start} - 1)
+                    duplicate (item i of allTracks) to tempPlaylist
+                end repeat
+            end if
+        end tell"#,
+        album_name = album_name.replace('"', "\\\""),
+        temp_name = TEMP_PLAYLIST_NAME,
+        start = start_index + 1  // AppleScript is 1-indexed
+    );
+
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .map_err(|e| format!("Failed: {}", e))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr);
+        Err(format!("{}", err.trim()))
+    }
+}
+
+/// Play a playlist starting from track N (0-indexed)
+pub fn play_playlist_with_context(playlist_name: &str, track_index: usize) -> Result<(), String> {
+    // Create rotated temp playlist
+    create_rotated_playlist_from_playlist(playlist_name, track_index)?;
+
+    // Ensure window exists but hidden
+    ensure_music_hidden_with_window()?;
+
+    // Select temp playlist in sidebar and click Play
+    select_sidebar_item(TEMP_PLAYLIST_NAME)?;
+    std::thread::sleep(std::time::Duration::from_millis(100));
     click_play_button()?;
+
+    // Delete temp playlist after playback starts
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    delete_temp_playlist();
+
+    Ok(())
+}
+
+/// Play an album starting from track N (0-indexed)
+pub fn play_album_with_context(album_name: &str, track_index: usize) -> Result<(), String> {
+    // Create rotated temp playlist from album
+    create_rotated_playlist_from_album(album_name, track_index)?;
+
+    // Ensure window exists but hidden
+    ensure_music_hidden_with_window()?;
+
+    // Select temp playlist in sidebar and click Play
+    select_sidebar_item(TEMP_PLAYLIST_NAME)?;
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    click_play_button()?;
+
+    // Delete temp playlist after playback starts
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    delete_temp_playlist();
+
     Ok(())
 }

@@ -790,29 +790,32 @@ impl App {
                 }
             }
         } else if self.is_playlist_detail {
-            // プレイリスト詳細からの再生 - プレイリスト全体をキューに追加
+            // プレイリスト詳細からの再生 - 選択した曲から巡回再生
             let playlist_name = self.content_source_name.clone();
+            let track_index = self.content_selected;
             if !playlist_name.is_empty() {
-                self.message = Some(format!("▶ Playlist: {}", playlist_name));
+                if let Some(item) = self.content_items.get(track_index) {
+                    self.message = Some(format!("▶ {}", item.name));
+                }
                 // 同期的に実行（競合を避けるため）
-                let _ = accessibility::play_playlist_with_context(&playlist_name);
+                if let Err(e) = accessibility::play_playlist_with_context(&playlist_name, track_index) {
+                    self.message = Some(format!("Error: {}", e));
+                }
             }
         } else {
-            // アルバム詳細からの再生 - アルバム全体をキューに追加
-            // content_itemsから直接アルバム名を取得（より確実）
+            // アルバム詳細からの再生 - 選択した曲から巡回再生
             let album_name = self.content_items
                 .first()
                 .map(|item| item.album.clone())
                 .unwrap_or_else(|| self.content_source_name.clone());
+            let track_index = self.content_selected;
             if !album_name.is_empty() {
+                if let Some(item) = self.content_items.get(track_index) {
+                    self.message = Some(format!("▶ {}", item.name));
+                }
                 // 同期的に実行（競合を避けるため）
-                match accessibility::play_album_with_context(&album_name) {
-                    Ok(_) => {
-                        self.message = Some(format!("▶ Album: {}", album_name));
-                    }
-                    Err(e) => {
-                        self.message = Some(format!("Error: {}", e));
-                    }
+                if let Err(e) = accessibility::play_album_with_context(&album_name, track_index) {
+                    self.message = Some(format!("Error: {}", e));
                 }
             }
         }
