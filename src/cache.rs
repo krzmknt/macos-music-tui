@@ -298,14 +298,16 @@ impl TrackCache {
         }
 
         // "" または '' で囲まれている場合は完全一致
-        if (value.starts_with('"') && value.ends_with('"')) ||
-           (value.starts_with('\'') && value.ends_with('\'')) {
+        if value.len() >= 2 &&
+           ((value.starts_with('"') && value.ends_with('"')) ||
+            (value.starts_with('\'') && value.ends_with('\''))) {
             let inner = &value[1..value.len()-1];
             if inner.is_empty() {
                 return None;
             }
             Some((inner.to_string(), true))
         } else {
+            // 引用符が閉じていない場合はそのまま部分一致として扱う
             Some((value.to_string(), false))
         }
     }
