@@ -12,12 +12,19 @@ use crate::music::{ListItem, TrackInfo};
 
 const BG_ACCENT: Color = Color::Rgb(60, 60, 80);
 const BORDER_DIM: Color = Color::Rgb(60, 60, 75);
-const BORDER_FOCUS: Color = Color::Rgb(80, 200, 255);
 const TEXT_PRIMARY: Color = Color::Rgb(255, 255, 255);
 const TEXT_SECONDARY: Color = Color::Rgb(160, 160, 180);
 const TEXT_DIM: Color = Color::Rgb(100, 100, 120);
-const ACCENT_CYAN: Color = Color::Rgb(80, 200, 255);
 const ACCENT_GREEN: Color = Color::Rgb(80, 220, 120);
+
+fn accent_color(app: &App) -> Color {
+    let (r, g, b) = app.highlight_color.rgb();
+    Color::Rgb(r, g, b)
+}
+
+fn border_focus_color(app: &App) -> Color {
+    accent_color(app)
+}
 
 pub fn draw(frame: &mut Frame, app: &App) {
     let main_chunks = Layout::default()
@@ -118,10 +125,10 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
 
     let track_info = Paragraph::new(Line::from(vec![
         Span::styled(format!("{} ", status_icon), Style::default().fg(ACCENT_GREEN)),
-        Span::styled(format!("{} ", level_meter), Style::default().fg(ACCENT_CYAN)),
+        Span::styled(format!("{} ", level_meter), Style::default().fg(accent_color(app))),
         Span::styled(truncate(&name, name_max), Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
         Span::styled(" - ", Style::default().fg(TEXT_DIM)),
-        Span::styled(truncate(&artist, artist_max), Style::default().fg(ACCENT_CYAN)),
+        Span::styled(truncate(&artist, artist_max), Style::default().fg(accent_color(app))),
         Span::styled(" - ", Style::default().fg(TEXT_DIM)),
         Span::styled(truncate(&album, album_max), Style::default().fg(TEXT_SECONDARY)),
     ]));
@@ -152,7 +159,7 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
     let line2 = Paragraph::new(Line::from(vec![
         Span::styled(&current, Style::default().fg(TEXT_DIM)),
         Span::styled(" ", Style::default()),
-        Span::styled("━".repeat(filled), Style::default().fg(ACCENT_CYAN)),
+        Span::styled("━".repeat(filled), Style::default().fg(accent_color(app))),
         Span::styled("─".repeat(empty), Style::default().fg(BG_ACCENT)),
         Span::styled(" ", Style::default()),
         Span::styled(&total, Style::default().fg(TEXT_DIM)),
@@ -182,7 +189,7 @@ fn draw_left_column(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_search_box(frame: &mut Frame, app: &App, area: Rect) {
     let is_focused = app.focus == Focus::Search;
-    let border_color = if is_focused { BORDER_FOCUS } else { BORDER_DIM };
+    let border_color = if is_focused { border_focus_color(app) } else { BORDER_DIM };
 
     // キャッシュ中は高さを増やす
     let is_caching = !app.cache.is_complete();
@@ -199,13 +206,13 @@ fn draw_search_box(frame: &mut Frame, app: &App, area: Rect) {
     let search_line = if app.search_mode {
         if app.search_query.is_empty() {
             Line::from(vec![
-                Span::styled("|", Style::default().fg(ACCENT_CYAN)),
+                Span::styled("|", Style::default().fg(accent_color(app))),
                 Span::styled("Type to search...", Style::default().fg(TEXT_DIM)),
             ])
         } else {
             Line::from(vec![
                 Span::styled(&app.search_query, Style::default().fg(TEXT_PRIMARY)),
-                Span::styled("|", Style::default().fg(ACCENT_CYAN)),
+                Span::styled("|", Style::default().fg(accent_color(app))),
             ])
         }
     } else {
@@ -301,7 +308,7 @@ fn draw_search_box(frame: &mut Frame, app: &App, area: Rect) {
             ..inner
         };
         frame.render_widget(
-            Paragraph::new(playlist_text).style(Style::default().fg(ACCENT_CYAN)),
+            Paragraph::new(playlist_text).style(Style::default().fg(accent_color(app))),
             playlist_area,
         );
     }
@@ -309,7 +316,7 @@ fn draw_search_box(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_recently_added(frame: &mut Frame, app: &App, area: Rect) {
     let is_focused = app.focus == Focus::RecentlyAdded && !app.search_mode;
-    let border_color = if is_focused { BORDER_FOCUS } else { BORDER_DIM };
+    let border_color = if is_focused { border_focus_color(app) } else { BORDER_DIM };
 
     let card = Block::default()
         .borders(Borders::ALL)
@@ -345,7 +352,7 @@ fn draw_recently_added(frame: &mut Frame, app: &App, area: Rect) {
             let line_area = Rect { x: list_area.x, y, width: list_area.width, height: 1 };
             let is_selected = i == app.recently_added_selected;
             let style = if is_selected && is_focused {
-                Style::default().fg(ACCENT_CYAN)
+                Style::default().fg(accent_color(app))
             } else {
                 Style::default().fg(TEXT_SECONDARY)
             };
@@ -361,14 +368,14 @@ fn draw_recently_added(frame: &mut Frame, app: &App, area: Rect) {
                 let artist_max = max_len.saturating_sub(album_max + separator.len());
 
                 Paragraph::new(Line::from(vec![
-                    Span::styled(prefix, Style::default().fg(ACCENT_CYAN)),
+                    Span::styled(prefix, Style::default().fg(accent_color(app))),
                     Span::styled(truncate(&item.album, album_max), album_style),
                     Span::styled(separator, Style::default().fg(TEXT_DIM)),
                     Span::styled(truncate(&item.artist, artist_max), artist_style),
                 ]))
             } else {
                 Paragraph::new(Line::from(vec![
-                    Span::styled(prefix, Style::default().fg(ACCENT_CYAN)),
+                    Span::styled(prefix, Style::default().fg(accent_color(app))),
                     Span::styled(truncate(&item.name, max_len), style),
                 ]))
             };
@@ -379,7 +386,7 @@ fn draw_recently_added(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_playlists(frame: &mut Frame, app: &App, area: Rect) {
     let is_focused = app.focus == Focus::Playlists && !app.search_mode;
-    let border_color = if is_focused { BORDER_FOCUS } else { BORDER_DIM };
+    let border_color = if is_focused { border_focus_color(app) } else { BORDER_DIM };
 
     let card = Block::default()
         .borders(Borders::ALL)
@@ -399,13 +406,13 @@ fn draw_playlists(frame: &mut Frame, app: &App, area: Rect) {
         // 新規プレイリスト名入力モード
         let input_display = format!("New: {}_", app.new_playlist_name);
         let title = Paragraph::new(Line::from(vec![
-            Span::styled(input_display, Style::default().fg(ACCENT_CYAN)),
+            Span::styled(input_display, Style::default().fg(accent_color(app))),
         ]));
         frame.render_widget(title, title_area);
     } else if app.add_to_playlist_mode {
         // プレイリスト追加モード
         let title = Paragraph::new(Line::from(vec![
-            Span::styled("Add to which playlist?", Style::default().fg(ACCENT_CYAN).add_modifier(Modifier::BOLD)),
+            Span::styled("Add to which playlist?", Style::default().fg(accent_color(app)).add_modifier(Modifier::BOLD)),
         ]));
         frame.render_widget(title, title_area);
     } else {
@@ -445,18 +452,18 @@ fn draw_playlists(frame: &mut Frame, app: &App, area: Rect) {
                 let item = &app.playlists[idx];
                 let is_refreshing = app.playlist_refreshing.as_ref() == Some(&item.name);
                 let style = if is_selected && is_focused {
-                    Style::default().fg(ACCENT_CYAN)
+                    Style::default().fg(accent_color(app))
                 } else {
                     Style::default().fg(TEXT_SECONDARY)
                 };
                 let prefix = if is_selected && is_focused { ">" } else { " " };
                 
                 let mut spans = vec![
-                    Span::styled(prefix, Style::default().fg(ACCENT_CYAN)),
+                    Span::styled(prefix, Style::default().fg(accent_color(app))),
                     Span::styled(&item.name, style),
                 ];
                 if is_refreshing {
-                    spans.push(Span::styled(format!(" {}", spinner_char), Style::default().fg(ACCENT_CYAN)));
+                    spans.push(Span::styled(format!(" {}", spinner_char), Style::default().fg(accent_color(app))));
                 }
                 let line = Paragraph::new(Line::from(spans));
                 frame.render_widget(line, line_area);
@@ -469,7 +476,7 @@ fn draw_playlists(frame: &mut Frame, app: &App, area: Rect) {
                 };
                 let prefix = if is_selected && is_focused { ">" } else { " " };
                 let line = Paragraph::new(Line::from(vec![
-                    Span::styled(prefix, Style::default().fg(ACCENT_CYAN)),
+                    Span::styled(prefix, Style::default().fg(accent_color(app))),
                     Span::styled("+ New playlist", style),
                 ]));
                 frame.render_widget(line, line_area);
@@ -480,7 +487,7 @@ fn draw_playlists(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
     let is_focused = app.focus == Focus::Content;
-    let border_color = if is_focused { BORDER_FOCUS } else { BORDER_DIM };
+    let border_color = if is_focused { border_focus_color(app) } else { BORDER_DIM };
 
     let card = Block::default()
         .borders(Borders::ALL)
@@ -568,7 +575,7 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
         let spinner_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
         let spinner_char = spinner_frames[app.spinner_frame];
         let loading = Paragraph::new(format!("{} Loading...", spinner_char))
-            .style(Style::default().fg(ACCENT_CYAN));
+            .style(Style::default().fg(accent_color(app)));
         frame.render_widget(loading, list_area);
     } else if items.is_empty() {
         let empty_msg = if app.search_mode {
@@ -641,7 +648,7 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             let is_selected = i == app.content_selected;
 
             let (name_style, sub_style) = if is_selected && is_focused {
-                (Style::default().fg(ACCENT_CYAN), Style::default().fg(TEXT_SECONDARY))
+                (Style::default().fg(accent_color(app)), Style::default().fg(TEXT_SECONDARY))
             } else if is_selected {
                 (Style::default().fg(TEXT_PRIMARY), Style::default().fg(TEXT_DIM))
             } else {
@@ -654,7 +661,7 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             let plays_str = if item.played_count > 0 { item.played_count.to_string() } else { String::new() };
 
             let line = Paragraph::new(Line::from(vec![
-                Span::styled(prefix, Style::default().fg(ACCENT_CYAN)),
+                Span::styled(prefix, Style::default().fg(accent_color(app))),
                 Span::styled(pad_right(&seq_num, col_track), sub_style),
                 Span::styled(" ".repeat(col_gap), Style::default()),
                 Span::styled(pad_left(&truncate(&item.name, col_name.saturating_sub(1)), col_name), name_style),
@@ -718,7 +725,7 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             let is_selected = i == app.content_selected;
 
             let (name_style, sub_style) = if is_selected && is_focused {
-                (Style::default().fg(ACCENT_CYAN), Style::default().fg(TEXT_SECONDARY))
+                (Style::default().fg(accent_color(app)), Style::default().fg(TEXT_SECONDARY))
             } else if is_selected {
                 (Style::default().fg(TEXT_PRIMARY), Style::default().fg(TEXT_DIM))
             } else {
@@ -730,7 +737,7 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             let plays_str = if item.played_count > 0 { item.played_count.to_string() } else { String::new() };
 
             let line = Paragraph::new(Line::from(vec![
-                Span::styled(prefix, Style::default().fg(ACCENT_CYAN)),
+                Span::styled(prefix, Style::default().fg(accent_color(app))),
                 Span::styled(pad_right(&track_str, col_track), sub_style),
                 Span::styled(" ".repeat(col_gap), Style::default()),
                 Span::styled(pad_left(&truncate(&item.name, col_name.saturating_sub(1)), col_name), name_style),
@@ -803,7 +810,7 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             let is_selected = i == app.content_selected;
 
             let (name_style, sub_style) = if is_selected && is_focused {
-                (Style::default().fg(ACCENT_CYAN), Style::default().fg(TEXT_SECONDARY))
+                (Style::default().fg(accent_color(app)), Style::default().fg(TEXT_SECONDARY))
             } else if is_selected {
                 (Style::default().fg(TEXT_PRIMARY), Style::default().fg(TEXT_DIM))
             } else {
@@ -819,7 +826,7 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             let plays_str = if item.played_count > 0 { item.played_count.to_string() } else { String::new() };
 
             let line = Paragraph::new(Line::from(vec![
-                Span::styled(prefix, Style::default().fg(ACCENT_CYAN)),
+                Span::styled(prefix, Style::default().fg(accent_color(app))),
                 Span::styled(pad_right(&track_num, col_track), sub_style),
                 Span::styled(" ".repeat(col_gap), Style::default()),
                 Span::styled(pad_left(&truncate(display_name, col_name.saturating_sub(1)), col_name), name_style),
@@ -853,7 +860,7 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
 
             let is_selected = i == app.content_selected;
             let (prefix, name_style, sub_style) = if is_selected && is_focused {
-                ("> ", Style::default().fg(ACCENT_CYAN), Style::default().fg(TEXT_SECONDARY))
+                ("> ", Style::default().fg(accent_color(app)), Style::default().fg(TEXT_SECONDARY))
             } else if is_selected {
                 ("  ", Style::default().fg(TEXT_PRIMARY), Style::default().fg(TEXT_DIM))
             } else {
@@ -870,7 +877,7 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             let display_album = if item.album.is_empty() { "(No album)" } else { &item.album };
 
             let mut spans = vec![
-                Span::styled(prefix, Style::default().fg(ACCENT_CYAN)),
+                Span::styled(prefix, Style::default().fg(accent_color(app))),
                 Span::styled(truncate(display_name, name_max), name_style),
             ];
 
@@ -887,7 +894,7 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
-    let key_style = Style::default().fg(ACCENT_CYAN);
+    let key_style = Style::default().fg(accent_color(app));
     let sep_style = Style::default().fg(TEXT_DIM);
     let warn_style = Style::default().fg(Color::Rgb(255, 100, 100));
 
@@ -979,6 +986,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             ("←→", "seek"),
             ("s", "shuffle"),
             ("r", "repeat"),
+            ("c", "color"),
             ("R", "refresh"),
             ("j/k/g/G", "nav"),
             ("h/l", "column"),

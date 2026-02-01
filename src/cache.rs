@@ -385,3 +385,61 @@ impl PlaylistCache {
         self.playlists.remove(playlist_name);
     }
 }
+
+// アプリケーション設定
+use crate::app::HighlightColor;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Settings {
+    #[serde(default)]
+    pub highlight_color: HighlightColor,
+}
+
+impl Default for HighlightColor {
+    fn default() -> Self {
+        HighlightColor::Cyan
+    }
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            highlight_color: HighlightColor::Cyan,
+        }
+    }
+}
+
+impl Settings {
+    fn settings_path() -> Option<PathBuf> {
+        dirs::cache_dir().map(|p| p.join("macos-music-tui").join("settings.json"))
+    }
+
+    pub fn load() -> Self {
+        let path = match Self::settings_path() {
+            Some(p) => p,
+            None => return Self::default(),
+        };
+
+        if !path.exists() {
+            return Self::default();
+        }
+
+        match fs::read_to_string(&path) {
+            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+            Err(_) => Self::default(),
+        }
+    }
+
+    pub fn save(&self) -> Result<()> {
+        let path = Self::settings_path()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine settings path"))?;
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let content = serde_json::to_string(self)?;
+        fs::write(&path, content)?;
+        Ok(())
+    }
+}

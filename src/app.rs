@@ -1,9 +1,10 @@
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 use crate::accessibility;
-use crate::cache::{CachedTrack, CachedPlaylist, CachedPlaylistTrack, PlaylistCache, TrackCache};
+use crate::cache::{CachedTrack, CachedPlaylist, CachedPlaylistTrack, PlaylistCache, Settings, TrackCache};
 use crate::music::{ListItem, MusicController, TrackInfo};
 
 // 再生制御用コマンド（メインワーカースレッド）
@@ -58,6 +59,52 @@ pub enum DragTarget {
 pub enum DeleteTarget {
     Playlist { name: String },
     TrackFromPlaylist { playlist_name: String, track_name: String, track_index: usize },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum HighlightColor {
+    Cyan,
+    Green,
+    Yellow,
+    Orange,
+    Pink,
+    Magenta,
+    Purple,
+    Blue,
+    Red,
+    White,
+}
+
+impl HighlightColor {
+    pub fn next(&self) -> Self {
+        match self {
+            HighlightColor::Cyan => HighlightColor::Green,
+            HighlightColor::Green => HighlightColor::Yellow,
+            HighlightColor::Yellow => HighlightColor::Orange,
+            HighlightColor::Orange => HighlightColor::Pink,
+            HighlightColor::Pink => HighlightColor::Magenta,
+            HighlightColor::Magenta => HighlightColor::Purple,
+            HighlightColor::Purple => HighlightColor::Blue,
+            HighlightColor::Blue => HighlightColor::Red,
+            HighlightColor::Red => HighlightColor::White,
+            HighlightColor::White => HighlightColor::Cyan,
+        }
+    }
+
+    pub fn rgb(&self) -> (u8, u8, u8) {
+        match self {
+            HighlightColor::Cyan => (80, 200, 255),
+            HighlightColor::Green => (80, 220, 120),
+            HighlightColor::Yellow => (255, 220, 80),
+            HighlightColor::Orange => (255, 150, 50),
+            HighlightColor::Pink => (255, 130, 180),
+            HighlightColor::Magenta => (220, 100, 255),
+            HighlightColor::Purple => (160, 100, 255),
+            HighlightColor::Blue => (100, 140, 255),
+            HighlightColor::Red => (255, 100, 100),
+            HighlightColor::White => (255, 255, 255),
+        }
+    }
 }
 
 
@@ -131,6 +178,9 @@ pub struct App {
 
     // プレイリスト更新用
     playlist_refresh_rx: Option<Receiver<(String, Vec<ListItem>)>>,
+
+    // ハイライトカラー
+    pub highlight_color: HighlightColor,
 }
 
 impl App {
@@ -145,6 +195,9 @@ impl App {
 
         // キャッシュを読み込み
         let cache = TrackCache::load();
+
+        // 設定を読み込み
+        let settings = Settings::load();
 
         // 再生制御用バックグラウンドスレッド（軽量・高速）
         thread::spawn(move || {
@@ -420,6 +473,7 @@ impl App {
             playlist_loading_progress: String::new(),
             playlist_load_rx,
             playlist_refresh_rx: None,
+            highlight_color: settings.highlight_color,
         }
     }
 
@@ -650,6 +704,15 @@ impl App {
                 self.message = Some(format!("Error: {}", e));
             }
         }
+    }
+
+    pub fn cycle_highlight_color(&mut self) {
+        self.highlight_color = self.highlight_color.next();
+        // 設定を保存
+        let settings = Settings {
+            highlight_color: self.highlight_color,
+        };
+        let _ = settings.save();
     }
 
     pub fn seek_backward(&mut self) {

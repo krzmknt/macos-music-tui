@@ -231,6 +231,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                         KeyCode::Char('r') => {
                             app.cycle_repeat();
                         }
+                        KeyCode::Char('c') => {
+                            app.cycle_highlight_color();
+                        }
                         KeyCode::Char('R') => {
                             app.refresh_current_playlist();
                         }
