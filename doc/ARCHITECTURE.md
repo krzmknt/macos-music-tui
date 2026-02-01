@@ -281,6 +281,64 @@ pub fn search(&self, query: &str) -> Vec<&CachedTrack> {
 - Space-separated AND search
 - Case insensitive
 
+### Limitations and Trade-offs
+
+#### Why Caching is Necessary
+
+AppleScript communication with Music.app is **extremely slow**:
+
+| Operation | Approximate Time |
+|-----------|------------------|
+| Get single track info | 50-100ms |
+| Get 1000 tracks | 50-100 seconds |
+| Get 30000 tracks | 25-50 minutes |
+
+Without caching, the TUI would be unusable. Users would wait minutes just to see their library.
+
+#### Cache Staleness
+
+**Problem**: Cached data becomes stale over time.
+
+| Data Type | Staleness Impact |
+|-----------|------------------|
+| **Play count** | May be outdated (shows count from last cache update) |
+| **Last played date** | May not reflect recent plays |
+| **Favorited status** | May not reflect recent changes in Music.app |
+| **Track ratings** | May not reflect recent changes |
+
+**Trade-off accepted**: We prioritize responsiveness over real-time accuracy. The incremental update (checking tracks added within 1 day) helps, but play counts and other metadata for existing tracks are not refreshed.
+
+**Workaround**: Users can manually trigger a full cache refresh (though this is slow).
+
+#### Playlist Content Not Real-time
+
+**Problem**: Playlist track lists are cached and not fetched in real-time.
+
+```
+Timeline:
+┌──────────────────────────────────────────────────────────────┐
+│ 10:00  User adds song X to "My Playlist" in Music.app        │
+│ 10:05  TUI shows "My Playlist" (cached, X not visible)       │
+│ 10:10  Cache updates in background                           │
+│ 10:15  TUI now shows song X in "My Playlist"                 │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Cause**: Fetching playlist contents via AppleScript is slow. We cache playlist data to maintain UI responsiveness.
+
+**Trade-off accepted**: Playlist changes made in Music.app may not appear immediately in the TUI. Playlists are only updated when:
+- The TUI is restarted
+- Background cache update runs
+- User navigates away and back to the playlist
+
+#### Summary of Trade-offs
+
+| Optimization | Benefit | Cost |
+|--------------|---------|------|
+| Track caching | Fast search, instant display | Stale play counts, metadata |
+| Playlist caching | Fast navigation | Delayed sync with Music.app changes |
+| Incremental updates | Faster startup | Only catches new tracks, not metadata changes |
+
 ## UI Structure
 
 ### Layout

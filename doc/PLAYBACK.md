@@ -315,9 +315,62 @@ pub fn play_album_with_context(album_name: &str, track_index: usize) -> Result<(
 }
 ```
 
-## Limitations
+## Limitations and Trade-offs
 
-1. **Accessibility Permission**: Requires accessibility permission in System Preferences
-2. **Music.app State**: Automatically launches if Music.app is not running
-3. **Temp Playlist Conflict**: Overwrites if a playlist with the same name exists
-4. **Processing Time**: May take time for albums with many tracks
+### System Requirements
+
+| Limitation | Description |
+|------------|-------------|
+| **Accessibility Permission** | Requires accessibility permission in System Preferences → Security & Privacy → Accessibility |
+| **Music.app State** | Automatically launches Music.app if not running |
+| **Temp Playlist Conflict** | Overwrites any existing playlist named `___TempQueue___` |
+
+### Sidebar Visibility Requirement
+
+**Problem**: If the "Playlists" section in Music.app's sidebar is **collapsed/folded**, playback will fail.
+
+```
+Sidebar when expanded (✅ Works):        Sidebar when collapsed (❌ Fails):
+┌─────────────────────┐                  ┌─────────────────────┐
+│  Library            │                  │  Library            │
+│    ├─ Recently Added│                  │    └─ ...           │
+│    └─ ...           │                  │                     │
+│                     │                  │  ▶ Playlists        │ ← Collapsed!
+│  ▼ Playlists        │ ← Expanded       │                     │
+│    ├─ My Playlist   │                  │                     │
+│    └─ ___TempQueue__│ ← Visible!       │                     │
+└─────────────────────┘                  └─────────────────────┘
+```
+
+**Cause**: The temporary playlist `___TempQueue___` is created under "Playlists", but if that section is collapsed, System Events cannot find and select it.
+
+**Workaround**: Ensure the Playlists section is expanded in Music.app before using the TUI.
+
+### Circular Playlist and Repeat Mode Issue
+
+**Problem**: When `Repeat: OFF` in Music.app, the circular playlist causes unexpected behavior.
+
+```
+Original album: [1, 2, 3, 4, 5]
+User selects track 3
+
+Temporary playlist created: [3, 4, 5, 1, 2]
+
+Expected with Repeat OFF:
+  Play: 3 → 4 → 5 → STOP (end of original album)
+
+Actual with Repeat OFF:
+  Play: 3 → 4 → 5 → 1 → 2 → STOP (plays wrapped tracks too!)
+```
+
+**Cause**: The temporary playlist is a flat list; Music.app doesn't know where the "original end" was.
+
+**Trade-off accepted**: This is a known compromise. To avoid AutoPlay, we accept that tracks 1 to N-1 may play when Repeat is OFF.
+
+**Potential future solutions**:
+- Create a non-circular playlist (N to end only), accepting that 1 to N-1 won't be queued
+- Implement queue monitoring to stop playback at the right time (complex)
+
+### Processing Time
+
+For albums with many tracks, creating the temporary playlist may take noticeable time due to AppleScript's per-track `duplicate` operation.
