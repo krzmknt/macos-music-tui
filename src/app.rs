@@ -145,6 +145,7 @@ pub struct App {
 
     pub search_mode: bool,
     pub search_query: String,
+    pub search_cursor: usize,  // カーソル位置（文字数）
     pub search_results: Vec<ListItem>,
     pub search_sort_mode: SearchSortMode,
     search_results_unsorted: Vec<ListItem>,  // ソート切替用にオリジナルを保持
@@ -454,6 +455,7 @@ impl App {
             dragging: None,
             search_mode: false,
             search_query: String::new(),
+            search_cursor: 0,
             search_results: Vec::new(),
             search_sort_mode: SearchSortMode::Default,
             search_results_unsorted: Vec::new(),
@@ -1260,6 +1262,7 @@ impl App {
     pub fn start_search(&mut self) {
         self.search_mode = true;
         self.search_query.clear();
+        self.search_cursor = 0;
         self.search_results.clear();
         self.focus = Focus::Search;
     }
@@ -1267,17 +1270,64 @@ impl App {
     pub fn cancel_search(&mut self) {
         self.search_mode = false;
         self.search_query.clear();
+        self.search_cursor = 0;
         self.search_results.clear();
         self.focus = Focus::RecentlyAdded;
     }
 
     pub fn search_input(&mut self, c: char) {
-        self.search_query.push(c);
+        // カーソル位置に文字を挿入
+        let byte_pos = self.search_query.chars().take(self.search_cursor).map(|c| c.len_utf8()).sum();
+        self.search_query.insert(byte_pos, c);
+        self.search_cursor += 1;
         self.do_search();
     }
 
     pub fn search_backspace(&mut self) {
-        self.search_query.pop();
+        // カーソル位置の前の文字を削除 (Ctrl+H)
+        if self.search_cursor > 0 {
+            let char_indices: Vec<_> = self.search_query.char_indices().collect();
+            if let Some(&(byte_pos, _)) = char_indices.get(self.search_cursor - 1) {
+                self.search_query.remove(byte_pos);
+                self.search_cursor -= 1;
+            }
+        }
+        if self.search_query.is_empty() {
+            self.search_results.clear();
+        } else {
+            self.do_search();
+        }
+    }
+
+    /// カーソルを行頭に移動 (Ctrl+A)
+    pub fn search_cursor_start(&mut self) {
+        self.search_cursor = 0;
+    }
+
+    /// カーソルを行末に移動 (Ctrl+E)
+    pub fn search_cursor_end(&mut self) {
+        self.search_cursor = self.search_query.chars().count();
+    }
+
+    /// カーソルを1文字進める (Ctrl+F)
+    pub fn search_cursor_forward(&mut self) {
+        let len = self.search_query.chars().count();
+        if self.search_cursor < len {
+            self.search_cursor += 1;
+        }
+    }
+
+    /// カーソルを1文字戻す (Ctrl+B)
+    pub fn search_cursor_backward(&mut self) {
+        if self.search_cursor > 0 {
+            self.search_cursor -= 1;
+        }
+    }
+
+    /// カーソル位置から行末まで削除 (Ctrl+K)
+    pub fn search_kill_line(&mut self) {
+        let byte_pos: usize = self.search_query.chars().take(self.search_cursor).map(|c| c.len_utf8()).sum();
+        self.search_query.truncate(byte_pos);
         if self.search_query.is_empty() {
             self.search_results.clear();
         } else {

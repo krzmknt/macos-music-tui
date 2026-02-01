@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, MouseEventKind, EnableMouseCapture, DisableMouseCapture},
+    event::{self, Event, KeyCode, KeyModifiers, MouseEventKind, EnableMouseCapture, DisableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -204,6 +204,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                         }
                     } else {
                         // Searchカードにフォーカス中: 文字入力
+                        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                         match key.code {
                             KeyCode::Esc => {
                                 app.cancel_search();
@@ -213,6 +214,24 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                             }
                             KeyCode::Backspace => {
                                 app.search_backspace();
+                            }
+                            KeyCode::Char('a') if ctrl => {
+                                app.search_cursor_start();
+                            }
+                            KeyCode::Char('e') if ctrl => {
+                                app.search_cursor_end();
+                            }
+                            KeyCode::Char('h') if ctrl => {
+                                app.search_backspace();
+                            }
+                            KeyCode::Char('k') if ctrl => {
+                                app.search_kill_line();
+                            }
+                            KeyCode::Char('f') if ctrl => {
+                                app.search_cursor_forward();
+                            }
+                            KeyCode::Char('b') if ctrl => {
+                                app.search_cursor_backward();
                             }
                             KeyCode::Char(c) => {
                                 app.search_input(c);

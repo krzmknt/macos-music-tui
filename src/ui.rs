@@ -316,7 +316,12 @@ fn draw_search_box(frame: &mut Frame, app: &App, area: Rect) {
 
     // 検索モード時はカーソルを検索入力位置に配置（IME対応）
     if app.search_mode && app.focus == Focus::Search {
-        let cursor_x = search_area.x + app.search_query.width() as u16;
+        // カーソル位置までの表示幅を計算
+        let cursor_width: usize = app.search_query.chars()
+            .take(app.search_cursor)
+            .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0))
+            .sum();
+        let cursor_x = search_area.x + cursor_width as u16;
         let cursor_y = search_area.y;
         frame.set_cursor_position((cursor_x, cursor_y));
     }
