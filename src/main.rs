@@ -239,6 +239,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                             KeyCode::Char('b') if ctrl => {
                                 app.search_cursor_backward();
                             }
+                            KeyCode::Left => {
+                                app.search_cursor_backward();
+                            }
+                            KeyCode::Right => {
+                                app.search_cursor_forward();
+                            }
                             KeyCode::Char(c) => {
                                 app.search_input(c);
                             }
