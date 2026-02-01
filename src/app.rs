@@ -64,6 +64,7 @@ pub struct App {
     pub should_quit: bool,
 
     pub focus: Focus,
+    pub last_left_focus: Focus,  // h/l移動時に戻る左ペイン
     pub recently_added: Vec<ListItem>,
     pub recently_added_selected: usize,
     pub recently_added_scroll: usize,
@@ -355,6 +356,7 @@ impl App {
             message: None,
             should_quit: false,
             focus: Focus::RecentlyAdded,
+            last_left_focus: Focus::RecentlyAdded,
             recently_added,
             recently_added_selected: 0,
             recently_added_scroll: 0,
@@ -645,6 +647,14 @@ impl App {
             Focus::Search => Focus::Search,
         };
 
+        // 左ペイン間の移動時は last_left_focus を更新
+        match self.focus {
+            Focus::RecentlyAdded | Focus::Playlists => {
+                self.last_left_focus = self.focus;
+            }
+            _ => {}
+        }
+
         // Reload content when focus changes to ensure content_source_name matches current selection
         match self.focus {
             Focus::RecentlyAdded => {
@@ -659,16 +669,22 @@ impl App {
         }
     }
 
-    /// h: 左カラムへ移動
+    /// h: 左カラムへ移動（元いた左ペインに戻り、詳細を再読み込み）
     pub fn focus_left(&mut self) {
         match self.focus {
             Focus::Content => {
-                // 詳細から左カラムへ戻る（前のフォーカス位置に戻る）
-                // デフォルトはRecentlyAdded
-                if self.playlists_selected < self.playlists.len() && self.content_source_name == self.playlists.get(self.playlists_selected).map(|p| p.name.as_str()).unwrap_or("") {
-                    self.focus = Focus::Playlists;
-                } else {
-                    self.focus = Focus::RecentlyAdded;
+                self.focus = self.last_left_focus;
+                // 戻り先に応じて詳細画面を再読み込み
+                match self.last_left_focus {
+                    Focus::RecentlyAdded => {
+                        self.load_selected_album_tracks();
+                    }
+                    Focus::Playlists => {
+                        if !self.playlists.is_empty() {
+                            self.load_selected_playlist_tracks();
+                        }
+                    }
+                    _ => {}
                 }
             }
             _ => {}
@@ -679,6 +695,7 @@ impl App {
     pub fn focus_right(&mut self) {
         match self.focus {
             Focus::RecentlyAdded | Focus::Playlists => {
+                self.last_left_focus = self.focus;  // 元の左ペインを記憶
                 self.focus = Focus::Content;
                 self.content_selected = 0;
                 self.content_scroll = 0;
@@ -771,11 +788,13 @@ impl App {
                     if item_index < self.recently_added.len() {
                         self.recently_added_selected = item_index;
                         self.focus = Focus::RecentlyAdded;
+                        self.last_left_focus = Focus::RecentlyAdded;
                         self.load_selected_album_tracks();
                         return true;
                     }
                 }
                 self.focus = Focus::RecentlyAdded;
+                self.last_left_focus = Focus::RecentlyAdded;
                 return true;
             } else {
                 // Playlists
@@ -786,11 +805,13 @@ impl App {
                     if item_index < self.playlists.len() {
                         self.playlists_selected = item_index;
                         self.focus = Focus::Playlists;
+                        self.last_left_focus = Focus::Playlists;
                         self.load_selected_playlist_tracks();
                         return true;
                     }
                 }
                 self.focus = Focus::Playlists;
+                self.last_left_focus = Focus::Playlists;
                 return true;
             }
         } else {
@@ -799,12 +820,8 @@ impl App {
                 let item_index = (relative_y - 3) as usize + self.content_scroll;
                 let items = if self.search_mode { &self.search_results } else { &self.content_items };
                 if item_index < items.len() {
-                    if self.content_selected == item_index && self.focus == Focus::Content {
-                        self.play_selected();
-                    } else {
-                        self.content_selected = item_index;
-                        self.focus = Focus::Content;
-                    }
+                    self.content_selected = item_index;
+                    self.focus = Focus::Content;
                     return true;
                 }
             }
