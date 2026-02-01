@@ -155,7 +155,7 @@ fn draw_help(frame: &mut Frame, app: &App) {
 
     // カードサイズ
     let card_width = 60u16;
-    let card_height = 22u16;
+    let card_height = 20u16;
 
     // 中央に配置
     let card_x = area.x + (area.width.saturating_sub(card_width)) / 2;
@@ -228,11 +228,6 @@ fn draw_help(frame: &mut Frame, app: &App) {
         Line::from(vec![
             Span::styled("  hasUppercase", Style::default().fg(TEXT_PRIMARY)),
             Span::styled(" → case-sensitive", Style::default().fg(TEXT_DIM)),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("Example: ", Style::default().fg(TEXT_DIM)),
-            Span::styled("artist:\"IO\" name:hello", Style::default().fg(TEXT_PRIMARY)),
         ]),
         Line::from(""),
         Line::from(vec![
