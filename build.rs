@@ -33,11 +33,6 @@ fn main() {
     // Convert to JST
     let ts_local = now + 9 * 3600;
 
-    // Calculate date/time components
-    let seconds_in_day = ((ts_local % 86400) + 86400) % 86400;
-    let hour = seconds_in_day / 3600;
-    let minute = (seconds_in_day % 3600) / 60;
-
     let mut days = ts_local / 86400;
     if ts_local < 0 && ts_local % 86400 != 0 {
         days -= 1;
@@ -66,15 +61,15 @@ fn main() {
 
     let day = days + 1;
 
-    let build_version = format!("{}.{:02}.{:02}.{:02}.{:02}", year, month, day, hour, minute);
+    let build_date = format!("{}/{}/{}", year, month, day);
 
     // Write version info to file
     fs::write(
         &dest_path,
         format!(
-            r#"pub const BUILD_VERSION: &str = "{}";
+            r#"pub const BUILD_DATE: &str = "{}";
 pub const GIT_COMMIT: &str = "{}";"#,
-            build_version, commit_hash
+            build_date, commit_hash
         ),
     )
     .unwrap();
