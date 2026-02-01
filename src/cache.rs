@@ -68,6 +68,8 @@ pub struct TrackCache {
     pub loaded_tracks: usize,
     pub last_updated: Option<u64>,  // Unix timestamp
     pub tracks: Vec<CachedTrack>,
+    #[serde(skip)]
+    search_keys_initialized: bool,
 }
 
 impl TrackCache {
@@ -86,16 +88,7 @@ impl TrackCache {
 
         match fs::read_to_string(&path) {
             Ok(content) => {
-                match serde_json::from_str::<TrackCache>(&content) {
-                    Ok(mut cache) => {
-                        // 検索キーを初期化
-                        for track in &mut cache.tracks {
-                            track.init_search_key();
-                        }
-                        cache
-                    }
-                    Err(_) => Self::default(),
-                }
+                serde_json::from_str::<TrackCache>(&content).unwrap_or_default()
             }
             Err(_) => Self::default(),
         }
@@ -208,8 +201,20 @@ impl TrackCache {
         })
     }
 
+    /// 検索キーを遅延初期化
+    fn ensure_search_keys(&mut self) {
+        if !self.search_keys_initialized {
+            for track in &mut self.tracks {
+                track.init_search_key();
+            }
+            self.search_keys_initialized = true;
+        }
+    }
+
     /// あいまい検索 - クエリの各単語がトラック情報に含まれているか
-    pub fn search(&self, query: &str) -> Vec<&CachedTrack> {
+    pub fn search(&mut self, query: &str) -> Vec<CachedTrack> {
+        self.ensure_search_keys();
+
         let query_lower = query.to_lowercase();
         let query_words: Vec<&str> = query_lower.split_whitespace().collect();
 
@@ -218,6 +223,7 @@ impl TrackCache {
             .filter(|track| {
                 query_words.iter().all(|word| track.search_key.contains(word))
             })
+            .cloned()
             .collect()
     }
 

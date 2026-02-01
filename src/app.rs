@@ -185,9 +185,11 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
-        // Initialize Music window off-screen at startup
+        // Initialize Music window off-screen in background
         // This ensures the window exists before any playlist playback
-        accessibility::init_music_window_offscreen();
+        thread::spawn(|| {
+            accessibility::init_music_window_offscreen();
+        });
 
         let (cmd_tx, cmd_rx) = mpsc::channel::<Command>();
         let (resp_tx, resp_rx) = mpsc::channel::<Response>();
