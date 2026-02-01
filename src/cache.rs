@@ -214,19 +214,35 @@ impl TrackCache {
     }
 
     /// あいまい検索 - クエリの各単語がトラック情報に含まれているか
+    /// 全て小文字の場合は case insensitive、大文字が含まれる場合は case sensitive
     pub fn search(&mut self, query: &str) -> Vec<CachedTrack> {
-        self.ensure_search_keys();
+        let has_uppercase = query.chars().any(|c| c.is_uppercase());
+        let query_words: Vec<&str> = query.split_whitespace().collect();
 
-        let query_lower = query.to_lowercase();
-        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+        if has_uppercase {
+            // Case sensitive search
+            self.tracks
+                .iter()
+                .filter(|track| {
+                    let search_target = format!("{} {} {}", track.name, track.artist, track.album);
+                    query_words.iter().all(|word| search_target.contains(word))
+                })
+                .cloned()
+                .collect()
+        } else {
+            // Case insensitive search
+            self.ensure_search_keys();
+            let query_lower = query.to_lowercase();
+            let query_words_lower: Vec<&str> = query_lower.split_whitespace().collect();
 
-        self.tracks
-            .iter()
-            .filter(|track| {
-                query_words.iter().all(|word| track.search_key.contains(word))
-            })
-            .cloned()
-            .collect()
+            self.tracks
+                .iter()
+                .filter(|track| {
+                    query_words_lower.iter().all(|word| track.search_key.contains(word))
+                })
+                .cloned()
+                .collect()
+        }
     }
 
     /// アルバム名でトラックを取得（トラック番号順）
