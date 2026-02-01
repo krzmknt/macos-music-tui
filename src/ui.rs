@@ -824,8 +824,9 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
         let track_name_gap = 2;  // # と Name の間隔
         let fixed_cols = col_track + track_name_gap + col_time + col_year + col_plays;
         let flex_total = available.saturating_sub(fixed_cols);
-        let col_name = flex_total * 30 / 100;
-        let col_artist = flex_total * 30 / 100;
+        // Name が最も広く、Artist と Album は同じ幅
+        let col_name = flex_total * 40 / 100;
+        let col_artist = (flex_total.saturating_sub(col_name)) / 2;
         let col_album = flex_total.saturating_sub(col_name + col_artist);
 
         // ヘッダー行
