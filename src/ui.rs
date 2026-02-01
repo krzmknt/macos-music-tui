@@ -34,6 +34,12 @@ pub fn draw(frame: &mut Frame, app: &App) {
         return;
     }
 
+    // ヘルプ画面表示
+    if app.show_help {
+        draw_help(frame, app);
+        return;
+    }
+
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
@@ -142,6 +148,100 @@ fn draw_welcome(frame: &mut Frame, app: &App) {
         .alignment(ratatui::layout::Alignment::Center);
     let footer_area = Rect { y: inner.y + 9, height: 1, ..inner };
     frame.render_widget(footer, footer_area);
+}
+
+fn draw_help(frame: &mut Frame, app: &App) {
+    let area = frame.area();
+
+    // カードサイズ
+    let card_width = 60u16;
+    let card_height = 22u16;
+
+    // 中央に配置
+    let card_x = area.x + (area.width.saturating_sub(card_width)) / 2;
+    let card_y = area.y + (area.height.saturating_sub(card_height)) / 2;
+
+    let card_area = Rect {
+        x: card_x,
+        y: card_y,
+        width: card_width.min(area.width),
+        height: card_height.min(area.height),
+    };
+
+    // カード背景
+    let card = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(accent_color(app)))
+        .title(" Search Help ")
+        .title_style(Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD));
+    frame.render_widget(card, card_area);
+
+    let inner = inner_area(card_area, 2, 1);
+
+    let help_text = vec![
+        Line::from(vec![
+            Span::styled("Advanced Search", Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Field Filters", Style::default().fg(accent_color(app))),
+            Span::styled(" (case-insensitive prefix)", Style::default().fg(TEXT_DIM)),
+        ]),
+        Line::from(vec![
+            Span::styled("  name:", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled("xxx    ", Style::default().fg(TEXT_DIM)),
+            Span::styled("Search in track name", Style::default().fg(TEXT_DIM)),
+        ]),
+        Line::from(vec![
+            Span::styled("  artist:", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled("xxx  ", Style::default().fg(TEXT_DIM)),
+            Span::styled("Search in artist name", Style::default().fg(TEXT_DIM)),
+        ]),
+        Line::from(vec![
+            Span::styled("  album:", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled("xxx   ", Style::default().fg(TEXT_DIM)),
+            Span::styled("Search in album name", Style::default().fg(TEXT_DIM)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Exact Match", Style::default().fg(accent_color(app))),
+            Span::styled(" (use quotes)", Style::default().fg(TEXT_DIM)),
+        ]),
+        Line::from(vec![
+            Span::styled("  artist:\"IO\"", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled("   Artist is exactly \"IO\"", Style::default().fg(TEXT_DIM)),
+        ]),
+        Line::from(vec![
+            Span::styled("  name:'OK'", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled("     Name is exactly \"OK\"", Style::default().fg(TEXT_DIM)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Smart Case", Style::default().fg(accent_color(app))),
+            Span::styled(" (without quotes)", Style::default().fg(TEXT_DIM)),
+        ]),
+        Line::from(vec![
+            Span::styled("  lowercase", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" → case-insensitive", Style::default().fg(TEXT_DIM)),
+        ]),
+        Line::from(vec![
+            Span::styled("  hasUppercase", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" → case-sensitive", Style::default().fg(TEXT_DIM)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Example: ", Style::default().fg(TEXT_DIM)),
+            Span::styled("artist:\"IO\" name:hello", Style::default().fg(TEXT_PRIMARY)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Press any key to close", Style::default().fg(TEXT_DIM)),
+        ]),
+    ];
+
+    let help = Paragraph::new(help_text);
+    frame.render_widget(help, inner);
 }
 
 fn draw_header(frame: &mut Frame, app: &App, area: Rect) {

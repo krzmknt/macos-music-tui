@@ -103,6 +103,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                     continue;
                 }
 
+                // ヘルプ画面表示中
+                if app.show_help {
+                    app.show_help = false;
+                    continue;
+                }
+
                 if !app.search_mode && !app.add_to_playlist_mode {
                     app.message = None;
                 }
@@ -243,6 +249,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                     match key.code {
                         KeyCode::Char('q') => {
                             app.should_quit = true;
+                        }
+                        KeyCode::Char('?') => {
+                            app.show_help = true;
                         }
                         KeyCode::Char('/') => {
                             app.start_search();

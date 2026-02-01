@@ -115,6 +115,7 @@ pub struct App {
     pub repeat: String,
     pub message: Option<String>,
     pub should_quit: bool,
+    pub show_help: bool,
 
     pub focus: Focus,
     pub last_left_focus: Focus,  // h/l移動時に戻る左ペイン
@@ -432,6 +433,7 @@ impl App {
             repeat: "off".to_string(),
             message: None,
             should_quit: false,
+            show_help: false,
             focus: Focus::RecentlyAdded,
             last_left_focus: Focus::RecentlyAdded,
             recently_added,
