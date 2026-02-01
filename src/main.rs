@@ -307,15 +307,6 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                         KeyCode::Char('a') => {
                             app.start_add_to_playlist();
                         }
-                        KeyCode::Char('d') => {
-                            // Playlistsカードでd: プレイリスト削除
-                            // プレイリスト詳細でd: 曲を削除
-                            if app.focus == Focus::Playlists {
-                                app.start_delete_playlist();
-                            } else if app.focus == Focus::Content && app.is_playlist_detail {
-                                app.start_delete_track_from_playlist();
-                            }
-                        }
                         KeyCode::Enter => {
                             match app.focus {
                                 Focus::RecentlyAdded => {
