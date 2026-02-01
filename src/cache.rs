@@ -215,33 +215,85 @@ impl TrackCache {
 
     /// あいまい検索 - クエリの各単語がトラック情報に含まれているか
     /// 全て小文字の場合は case insensitive、大文字が含まれる場合は case sensitive
+    /// 高度な検索: "Name:{key} Artist:{key} Album:{key}" でフィールド指定検索
     pub fn search(&mut self, query: &str) -> Vec<CachedTrack> {
-        let has_uppercase = query.chars().any(|c| c.is_uppercase());
-        let query_words: Vec<&str> = query.split_whitespace().collect();
+        self.ensure_search_keys();
 
+        // フィールド指定フィルタと一般検索語を分離
+        let mut name_filters: Vec<&str> = Vec::new();
+        let mut artist_filters: Vec<&str> = Vec::new();
+        let mut album_filters: Vec<&str> = Vec::new();
+        let mut general_words: Vec<&str> = Vec::new();
+
+        for word in query.split_whitespace() {
+            if let Some(key) = word.strip_prefix("Name:") {
+                if !key.is_empty() {
+                    name_filters.push(key);
+                }
+            } else if let Some(key) = word.strip_prefix("Artist:") {
+                if !key.is_empty() {
+                    artist_filters.push(key);
+                }
+            } else if let Some(key) = word.strip_prefix("Album:") {
+                if !key.is_empty() {
+                    album_filters.push(key);
+                }
+            } else {
+                general_words.push(word);
+            }
+        }
+
+        self.tracks
+            .iter()
+            .filter(|track| {
+                // Name フィルタ (AND条件)
+                for key in &name_filters {
+                    if !Self::smart_case_match(&track.name, key) {
+                        return false;
+                    }
+                }
+
+                // Artist フィルタ (AND条件)
+                for key in &artist_filters {
+                    if !Self::smart_case_match(&track.artist, key) {
+                        return false;
+                    }
+                }
+
+                // Album フィルタ (AND条件)
+                for key in &album_filters {
+                    if !Self::smart_case_match(&track.album, key) {
+                        return false;
+                    }
+                }
+
+                // 一般検索語 (各語がname/artist/albumのいずれかに含まれる)
+                for word in &general_words {
+                    let has_uppercase = word.chars().any(|c| c.is_uppercase());
+                    let matched = if has_uppercase {
+                        let search_target = format!("{} {} {}", track.name, track.artist, track.album);
+                        search_target.contains(*word)
+                    } else {
+                        track.search_key.contains(&word.to_lowercase())
+                    };
+                    if !matched {
+                        return false;
+                    }
+                }
+
+                true
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// スマートケースマッチ: キーが全て小文字なら case insensitive、大文字を含むなら case sensitive
+    fn smart_case_match(target: &str, key: &str) -> bool {
+        let has_uppercase = key.chars().any(|c| c.is_uppercase());
         if has_uppercase {
-            // Case sensitive search
-            self.tracks
-                .iter()
-                .filter(|track| {
-                    let search_target = format!("{} {} {}", track.name, track.artist, track.album);
-                    query_words.iter().all(|word| search_target.contains(word))
-                })
-                .cloned()
-                .collect()
+            target.contains(key)
         } else {
-            // Case insensitive search
-            self.ensure_search_keys();
-            let query_lower = query.to_lowercase();
-            let query_words_lower: Vec<&str> = query_lower.split_whitespace().collect();
-
-            self.tracks
-                .iter()
-                .filter(|track| {
-                    query_words_lower.iter().all(|word| track.search_key.contains(word))
-                })
-                .cloned()
-                .collect()
+            target.to_lowercase().contains(&key.to_lowercase())
         }
     }
 
