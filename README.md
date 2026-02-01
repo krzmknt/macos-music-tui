@@ -14,7 +14,7 @@ https://github.com/user-attachments/assets/408ac5d1-c1cc-44a8-bde3-7f9706c9c211
 
 ## Features
 
-- Full keyboard control of Music.app
+- Basic keyboard control of Music.app
 - Fast search with background caching
 - Resumable cache (continues from where it left off on next launch)
 - Playlist management (add tracks, create/delete playlists)
@@ -24,22 +24,26 @@ https://github.com/user-attachments/assets/408ac5d1-c1cc-44a8-bde3-7f9706c9c211
 ## Installation
 
 ### Homebrew (Recommended)
+
 ```bash
 brew install krzmknt/tap/mmt
 ```
 
 ### Cargo
+
 ```bash
 cargo install macos-music-tui
 ```
 
 ### Manual
+
 ```bash
 curl -L https://github.com/krzmknt/macos-music-tui/releases/download/v0.1.0/mmt-0.1.0-darwin-arm64.tar.gz | tar xz
 sudo mv mmt /usr/local/bin/
 ```
 
 ### Build from source
+
 ```bash
 git clone https://github.com/krzmknt/macos-music-tui
 cd macos-music-tui
@@ -68,26 +72,26 @@ mmt
 
 ### Key Bindings
 
-| Key               | Function                            |
-| ----------------- | ----------------------------------- |
-| `Space`           | Play/Pause                          |
-| `n`               | Next track                          |
-| `p`               | Previous track                      |
-| `←` `→`           | Seek 10 seconds                     |
-| `s`               | Toggle shuffle                      |
-| `r`               | Cycle repeat mode (off → all → one) |
-| `c`               | Cycle highlight color               |
-| `j` `k` / `↑` `↓` | Navigate list                       |
-| `J` `K`           | Jump to next / previous album (search) |
-| `g` `G`           | Jump to top / bottom                |
-| `h` `l`           | Switch column (left ↔ content)      |
+| Key               | Function                                  |
+| ----------------- | ----------------------------------------- |
+| `Space`           | Play/Pause                                |
+| `n`               | Next track                                |
+| `p`               | Previous track                            |
+| `←` `→`           | Seek 10 seconds                           |
+| `s`               | Toggle shuffle                            |
+| `r`               | Cycle repeat mode (off → all → one)       |
+| `c`               | Cycle highlight color                     |
+| `j` `k` / `↑` `↓` | Navigate list                             |
+| `J` `K`           | Jump to next / previous album (search)    |
+| `g` `G`           | Jump to top / bottom                      |
+| `h` `l`           | Switch column (left ↔ content)           |
 | `Tab`             | Switch pane (Recently Added ↔ Playlists) |
-| `Enter`           | Play selected / Show details        |
-| `/`               | Start search mode                   |
-| `Esc`             | Cancel search                       |
-| `a`               | Add track to playlist               |
-| `R`               | Refresh current playlist            |
-| `q`               | Quit                                |
+| `Enter`           | Play selected / Show details              |
+| `/`               | Start search mode                         |
+| `Esc`             | Cancel search                             |
+| `a`               | Add track to playlist                     |
+| `R`               | Refresh current playlist                  |
+| `q`               | Quit                                      |
 
 ## Architecture
 
@@ -116,22 +120,22 @@ All track metadata is cached locally for fast search.
 ┌─────────────────────────────────────────────────────────────┐
 │                  Background Processing                      │
 ├─────────────────────────────────────────────────────────────┤
-│  ┌─────────┐    100ms    ┌─────────┐    100ms    ┌────────┐│
-│  │ Batch 1 │ ──────────▶ │ Batch 2 │ ──────────▶ │ Batch N││
-│  │ 50 trks │             │ 50 trks │             │ rest   ││
-│  └─────────┘             └─────────┘             └────────┘│
-│       │                       │                       │    │
-│       ▼                       ▼                       ▼    │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │              TrackCache (in memory)                 │   │
-│  │  - tracks: Vec<CachedTrack>                         │   │
-│  │  - loaded_tracks: usize                             │   │
-│  │  - total_tracks: usize                              │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────┐    100ms    ┌─────────┐    100ms    ┌────────┐ │
+│  │ Batch 1 │ ──────────▶ │ Batch 2 │ ──────────▶ │ Batch N│ │
+│  │ 50 trks │             │ 50 trks │             │ rest   │ │
+│  └─────────┘             └─────────┘             └────────┘ │
+│       │                       │                       │     │
+│       ▼                       ▼                       ▼     │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │              TrackCache (in memory)                 │    │
+│  │  - tracks: Vec<CachedTrack>                         │    │
+│  │  - loaded_tracks: usize                             │    │
+│  │  - total_tracks: usize                              │    │
+│  └─────────────────────────────────────────────────────┘    │
 │                              │                              │
-│                    Save every 100 tracks                    │
+│                    Save every 50 tracks                     │
 │                              ▼                              │
-│                    ~/Library/Caches/.../tracks.json        │
+│                    ~/Library/Caches/.../tracks.json         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
