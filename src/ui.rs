@@ -207,13 +207,11 @@ fn draw_search_box(frame: &mut Frame, app: &App, area: Rect) {
     let search_line = if app.search_mode {
         if app.search_query.is_empty() {
             Line::from(vec![
-                Span::styled("|", Style::default().fg(accent_color(app))),
                 Span::styled("Type to search...", Style::default().fg(TEXT_DIM)),
             ])
         } else {
             Line::from(vec![
                 Span::styled(&app.search_query, Style::default().fg(TEXT_PRIMARY)),
-                Span::styled("|", Style::default().fg(accent_color(app))),
             ])
         }
     } else {
@@ -224,6 +222,13 @@ fn draw_search_box(frame: &mut Frame, app: &App, area: Rect) {
 
     let search_area = Rect { height: 1, ..inner };
     frame.render_widget(Paragraph::new(search_line), search_area);
+
+    // 検索モード時はカーソルを検索入力位置に配置（IME対応）
+    if app.search_mode && app.focus == Focus::Search {
+        let cursor_x = search_area.x + app.search_query.width() as u16;
+        let cursor_y = search_area.y;
+        frame.set_cursor_position((cursor_x, cursor_y));
+    }
 
     // キャッシュ状態表示
     if is_caching {
@@ -419,11 +424,16 @@ fn draw_playlists(frame: &mut Frame, app: &App, area: Rect) {
     let title_area = Rect { height: 1, ..inner };
     if app.new_playlist_input_mode {
         // 新規プレイリスト名入力モード
-        let input_display = format!("New: {}_", app.new_playlist_name);
+        let prefix = "New: ";
+        let input_display = format!("{}{}", prefix, app.new_playlist_name);
         let title = Paragraph::new(Line::from(vec![
             Span::styled(input_display, Style::default().fg(accent_color(app))),
         ]));
         frame.render_widget(title, title_area);
+        // カーソル位置を設定（IME対応）
+        let cursor_x = title_area.x + prefix.width() as u16 + app.new_playlist_name.width() as u16;
+        let cursor_y = title_area.y;
+        frame.set_cursor_position((cursor_x, cursor_y));
     } else if app.add_to_playlist_mode {
         // プレイリスト追加モード
         let title = Paragraph::new(Line::from(vec![
