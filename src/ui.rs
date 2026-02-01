@@ -1167,8 +1167,8 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             ("h", "back"),
             ("l", "album"),
             ("a", "add"),
-            ("d", "remove"),
             ("/", "search"),
+            ("?", "help"),
             ("q", "quit"),
         ]
     } else if app.focus == Focus::Content {
@@ -1182,6 +1182,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             ("h/l", "column"),
             ("a", "add"),
             ("/", "search"),
+            ("?", "help"),
             ("q", "quit"),
         ]
     } else if app.focus == Focus::Playlists {
@@ -1191,9 +1192,9 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             ("Return", "select"),
             ("j/k/g/G", "nav"),
             ("h/l", "column"),
-            ("d", "delete"),
             ("Tab", "pane"),
             ("/", "search"),
+            ("?", "help"),
             ("q", "quit"),
         ]
     } else {
@@ -1210,6 +1211,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             ("h/l", "column"),
             ("Tab", "pane"),
             ("/", "search"),
+            ("?", "help"),
             ("q", "quit"),
         ]
     };
