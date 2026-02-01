@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 2026.02.01.19.17)'
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create tarball
+        run: |
+          cd target/release
+          tar -czf mmt-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz mmt
+          shasum -a 256 mmt-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz > mmt-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmt-darwin-arm64
+          path: |
+            target/release/mmt-*.tar.gz
+            target/release/mmt-*.sha256
+
+  publish-cargo:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Publish to crates.io
+        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true
+
+  publish-github-release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mmt-darwin-arm64
+          path: artifacts
+
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          files: |
+            artifacts/*
+          body: |
+            ## Installation
+
+            ### Cargo
+            ```bash
+            cargo install macos-music-tui
+            ```
+
+            ### Homebrew
+            ```bash
+            brew install krzmknt/tap/mmt
+            ```
+
+            ### Manual
+            ```bash
+            curl -L https://github.com/krzmknt/macos-music-tui/releases/download/v${{ steps.version.outputs.version }}/mmt-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz | tar xz
+            sudo mv mmt /usr/local/bin/
+            ```
+
+  update-homebrew:
+    needs: publish-github-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get version and SHA
+        id: info
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Download and get SHA256
+          curl -L -o mmt.tar.gz "https://github.com/krzmknt/macos-music-tui/releases/download/v${VERSION}/mmt-${VERSION}-darwin-arm64.tar.gz"
+          SHA256=$(shasum -a 256 mmt.tar.gz | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+
+      - name: Update Homebrew tap
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          repository: krzmknt/homebrew-tap
+          event-type: update-formula
+          client-payload: |
+            {
+              "version": "${{ steps.info.outputs.version }}",
+              "sha256": "${{ steps.info.outputs.sha256 }}"
+            }

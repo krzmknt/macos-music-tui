@@ -15,14 +15,34 @@ A TUI (Terminal User Interface) application for controlling macOS Music.app with
 
 ## Installation
 
+### Cargo
 ```bash
+cargo install macos-music-tui
+```
+
+### Homebrew
+```bash
+brew tap krzmknt/tap
+brew install mmt
+```
+
+### Nix
+```bash
+nix run github:krzmknt/macos-music-tui
+```
+
+### Build from source
+```bash
+git clone https://github.com/krzmknt/macos-music-tui
+cd macos-music-tui
 cargo build --release
+./target/release/mmt
 ```
 
 ## Usage
 
 ```bash
-cargo run
+mmt
 ```
 
 ### First Launch Note
