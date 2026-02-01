@@ -400,6 +400,7 @@ pub struct App {
 | `←` `→` | Seek 10 seconds |
 | `s` | Toggle shuffle |
 | `r` | Cycle repeat mode |
+| `R` | Refresh current playlist (force reload from Music.app) |
 | `j` `k` / `↑` `↓` | Navigate list |
 | `Tab` | Switch focus |
 | `Enter` | Play / Show details |

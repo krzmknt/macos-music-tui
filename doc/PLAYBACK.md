@@ -325,26 +325,22 @@ pub fn play_album_with_context(album_name: &str, track_index: usize) -> Result<(
 | **Music.app State** | Automatically launches Music.app if not running |
 | **Temp Playlist Conflict** | Overwrites any existing playlist named `___TempQueue___` |
 
-### Sidebar Visibility Requirement
+### Sidebar Visibility Requirement (Resolved)
 
-**Problem**: If the "Playlists" section in Music.app's sidebar is **collapsed/folded**, playback will fail.
+**Problem** (now fixed): If the "Playlists" section in Music.app's sidebar was collapsed, playback would fail.
 
-```
-Sidebar when expanded (✅ Works):        Sidebar when collapsed (❌ Fails):
-┌─────────────────────┐                  ┌─────────────────────┐
-│  Library            │                  │  Library            │
-│    ├─ Recently Added│                  │    └─ ...           │
-│    └─ ...           │                  │                     │
-│                     │                  │  ▶ Playlists        │ ← Collapsed!
-│  ▼ Playlists        │ ← Expanded       │                     │
-│    ├─ My Playlist   │                  │                     │
-│    └─ ___TempQueue__│ ← Visible!       │                     │
-└─────────────────────┘                  └─────────────────────┘
+**Solution**: The application now automatically expands the Playlists section by setting the `AXDisclosing` attribute before selecting the temporary playlist.
+
+```applescript
+-- Automatically expand Playlists section if collapsed
+set isDisclosing to value of attribute "AXDisclosing" of r
+if isDisclosing is false then
+    set value of attribute "AXDisclosing" of r to true
+    delay 0.3
+end if
 ```
 
-**Cause**: The temporary playlist `___TempQueue___` is created under "Playlists", but if that section is collapsed, System Events cannot find and select it.
-
-**Workaround**: Ensure the Playlists section is expanded in Music.app before using the TUI.
+This works for both English ("Playlists") and Japanese ("プレイリスト") locales.
 
 ### Circular Playlist and Repeat Mode Issue
 

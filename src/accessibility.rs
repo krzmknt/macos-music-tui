@@ -128,12 +128,31 @@ fn ensure_music_hidden_with_window() -> Result<(), String> {
 }
 
 /// Select a playlist in the sidebar (process stays hidden)
+/// Automatically expands the Playlists section if collapsed
 fn select_sidebar_item(item_name: &str) -> Result<(), String> {
     let script = format!(
         r#"tell application "System Events"
             tell process "Music"
                 set visible to false
                 set sidebarOutline to outline 1 of scroll area 1 of splitter group 1 of window 1
+                
+                -- First, ensure the Playlists section is expanded
+                repeat with r in rows of sidebarOutline
+                    try
+                        set rowName to name of UI element 1 of r
+                        if rowName is "Playlists" or rowName is "プレイリスト" then
+                            -- Check if collapsed and expand
+                            set isDisclosing to value of attribute "AXDisclosing" of r
+                            if isDisclosing is false then
+                                set value of attribute "AXDisclosing" of r to true
+                                delay 0.3
+                            end if
+                            exit repeat
+                        end if
+                    end try
+                end repeat
+                
+                -- Now search for the target playlist
                 repeat with r in rows of sidebarOutline
                     try
                         if name of UI element 1 of r is "{}" then

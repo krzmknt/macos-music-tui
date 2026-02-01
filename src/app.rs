@@ -715,6 +715,53 @@ impl App {
         }
     }
 
+
+    /// プレイリストを強制リフレッシュ（キャッシュを無視して再取得）
+    pub fn refresh_current_playlist(&mut self) {
+        if !self.is_playlist_detail {
+            self.message = Some("Not viewing a playlist".to_string());
+            return;
+        }
+        
+        let playlist_name = self.content_source_name.clone();
+        if playlist_name.is_empty() {
+            return;
+        }
+        
+        self.message = Some(format!("Refreshing {}...", playlist_name));
+        self.content_loading = true;
+        
+        match MusicController::get_playlist_tracks(&playlist_name) {
+            Ok(tracks) => {
+                // キャッシュを更新
+                let cached_tracks: Vec<CachedPlaylistTrack> = tracks.iter().map(|t| {
+                    CachedPlaylistTrack {
+                        name: t.name.clone(),
+                        artist: t.artist.clone(),
+                        album: t.album.clone(),
+                        year: t.year,
+                        time: t.time.clone(),
+                        played_count: t.played_count,
+                        favorited: t.favorited,
+                    }
+                }).collect();
+                let cached_playlist = CachedPlaylist {
+                    name: playlist_name.clone(),
+                    tracks: cached_tracks,
+                };
+                self.playlist_cache.insert(cached_playlist);
+                let _ = self.playlist_cache.save();
+                
+                self.content_items = tracks;
+                self.message = Some(format!("Refreshed {}", playlist_name));
+            }
+            Err(e) => {
+                self.message = Some(format!("Refresh failed: {}", e));
+            }
+        }
+        self.content_loading = false;
+    }
+
     fn adjust_recently_added_scroll(&mut self) {
         let visible = 9usize; // カード高さ12 - タイトル1 - ボーダー2 = 9行
         if self.recently_added_selected < self.recently_added_scroll {
