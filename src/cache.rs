@@ -213,37 +213,78 @@ impl TrackCache {
         }
     }
 
+    /// クエリを引用符を尊重してトークン化
+    /// 例: `artist:"James Blake" love` -> ["artist:\"James Blake\"", "love"]
+    fn tokenize_query(query: &str) -> Vec<String> {
+        let mut tokens = Vec::new();
+        let mut current = String::new();
+        let mut in_quotes = false;
+        let mut quote_char = '"';
+
+        for ch in query.chars() {
+            match ch {
+                '"' | '\'' if !in_quotes => {
+                    in_quotes = true;
+                    quote_char = ch;
+                    current.push(ch);
+                }
+                c if c == quote_char && in_quotes => {
+                    in_quotes = false;
+                    current.push(ch);
+                }
+                ' ' | '\t' if !in_quotes => {
+                    if !current.is_empty() {
+                        tokens.push(current.clone());
+                        current.clear();
+                    }
+                }
+                _ => {
+                    current.push(ch);
+                }
+            }
+        }
+
+        if !current.is_empty() {
+            tokens.push(current);
+        }
+
+        tokens
+    }
+
     /// あいまい検索 - クエリの各単語がトラック情報に含まれているか
     /// 全て小文字の場合は case insensitive、大文字が含まれる場合は case sensitive
     /// 高度な検索: "Name:{key} Artist:{key} Album:{key}" でフィールド指定検索
     /// フィールド名は大文字小文字を区別しない (name:, Name:, NAME: など)
-    /// "" または '' で囲むと完全一致検索 (例: artist:"IO")
+    /// "" または '' で囲むと完全一致検索 (例: artist:"James Blake")
     pub fn search(&mut self, query: &str) -> Vec<CachedTrack> {
         self.ensure_search_keys();
+
+        // 引用符を尊重してトークン化
+        let tokens = Self::tokenize_query(query);
 
         // フィールド指定フィルタと一般検索語を分離
         // SearchFilter: (value, is_exact_match)
         let mut name_filters: Vec<(String, bool)> = Vec::new();
         let mut artist_filters: Vec<(String, bool)> = Vec::new();
         let mut album_filters: Vec<(String, bool)> = Vec::new();
-        let mut general_words: Vec<&str> = Vec::new();
+        let mut general_words: Vec<String> = Vec::new();
 
-        for word in query.split_whitespace() {
-            let word_lower = word.to_lowercase();
-            if word_lower.starts_with("name:") {
-                if let Some((value, exact)) = Self::parse_filter_value(&word[5..]) {
+        for token in &tokens {
+            let token_lower = token.to_lowercase();
+            if token_lower.starts_with("name:") {
+                if let Some((value, exact)) = Self::parse_filter_value(&token[5..]) {
                     name_filters.push((value, exact));
                 }
-            } else if word_lower.starts_with("artist:") {
-                if let Some((value, exact)) = Self::parse_filter_value(&word[7..]) {
+            } else if token_lower.starts_with("artist:") {
+                if let Some((value, exact)) = Self::parse_filter_value(&token[7..]) {
                     artist_filters.push((value, exact));
                 }
-            } else if word_lower.starts_with("album:") {
-                if let Some((value, exact)) = Self::parse_filter_value(&word[6..]) {
+            } else if token_lower.starts_with("album:") {
+                if let Some((value, exact)) = Self::parse_filter_value(&token[6..]) {
                     album_filters.push((value, exact));
                 }
             } else {
-                general_words.push(word);
+                general_words.push(token.clone());
             }
         }
 
@@ -276,7 +317,7 @@ impl TrackCache {
                     let has_uppercase = word.chars().any(|c| c.is_uppercase());
                     let matched = if has_uppercase {
                         let search_target = format!("{} {} {}", track.name, track.artist, track.album);
-                        search_target.contains(*word)
+                        search_target.contains(word.as_str())
                     } else {
                         track.search_key.contains(&word.to_lowercase())
                     };
