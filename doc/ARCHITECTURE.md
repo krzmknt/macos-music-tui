@@ -115,11 +115,11 @@ In Music.app, simply executing `play track` activates **AutoPlay** mode, which p
 
 #### Why This Approach?
 
-| Approach | Problem |
-|----------|---------|
-| Direct `play track` | AutoPlay activates, random songs after track ends |
-| `reveal` + Play click | Previously selected album plays (selection context issue) |
-| Sidebar selection + Play click | Correctly adds to queue ✓ |
+| Approach                       | Problem                                                   |
+| ------------------------------ | --------------------------------------------------------- |
+| Direct `play track`            | AutoPlay activates, random songs after track ends         |
+| `reveal` + Play click          | Previously selected album plays (selection context issue) |
+| Sidebar selection + Play click | Correctly adds to queue ✓                                 |
 
 #### Implementation Details
 
@@ -184,7 +184,8 @@ fn click_play_button() -> Result<(), String> {
 ```
 ~/Library/Caches/macos-music-tui/
 ├── tracks.json      # All track metadata
-└── playlists.json   # Playlist information
+├── playlists.json   # Playlist information
+└── settings.json    # User settings (highlight color)
 ```
 
 ### Track Cache Structure
@@ -263,7 +264,10 @@ if cache_is_complete {
 Search is performed on cache, so it's fast.
 
 ```rust
-pub fn search(&self, query: &str) -> Vec<&CachedTrack> {
+pub fn search(&mut self, query: &str) -> Vec<CachedTrack> {
+    // Lazy initialization of search keys for performance
+    self.ensure_search_keys();
+
     let query_lower = query.to_lowercase();
     let query_words: Vec<&str> = query_lower.split_whitespace().collect();
 
@@ -273,6 +277,7 @@ pub fn search(&self, query: &str) -> Vec<&CachedTrack> {
             // Check if all words are in search_key
             query_words.iter().all(|word| track.search_key.contains(word))
         })
+        .cloned()
         .collect()
 }
 ```
@@ -287,11 +292,11 @@ pub fn search(&self, query: &str) -> Vec<&CachedTrack> {
 
 AppleScript communication with Music.app is **extremely slow**:
 
-| Operation | Approximate Time |
-|-----------|------------------|
-| Get single track info | 50-100ms |
-| Get 1000 tracks | 50-100 seconds |
-| Get 30000 tracks | 25-50 minutes |
+| Operation             | Approximate Time |
+| --------------------- | ---------------- |
+| Get single track info | 50-100ms         |
+| Get 1000 tracks       | 50-100 seconds   |
+| Get 30000 tracks      | 25-50 minutes    |
 
 Without caching, the TUI would be unusable. Users would wait minutes just to see their library.
 
@@ -299,12 +304,12 @@ Without caching, the TUI would be unusable. Users would wait minutes just to see
 
 **Problem**: Cached data becomes stale over time.
 
-| Data Type | Staleness Impact |
-|-----------|------------------|
-| **Play count** | May be outdated (shows count from last cache update) |
-| **Last played date** | May not reflect recent plays |
-| **Favorited status** | May not reflect recent changes in Music.app |
-| **Track ratings** | May not reflect recent changes |
+| Data Type            | Staleness Impact                                     |
+| -------------------- | ---------------------------------------------------- |
+| **Play count**       | May be outdated (shows count from last cache update) |
+| **Last played date** | May not reflect recent plays                         |
+| **Favorited status** | May not reflect recent changes in Music.app          |
+| **Track ratings**    | May not reflect recent changes                       |
 
 **Trade-off accepted**: We prioritize responsiveness over real-time accuracy. The incremental update (checking tracks added within 1 day) helps, but play counts and other metadata for existing tracks are not refreshed.
 
@@ -327,17 +332,18 @@ Timeline:
 **Cause**: Fetching playlist contents via AppleScript is slow. We cache playlist data to maintain UI responsiveness.
 
 **Trade-off accepted**: Playlist changes made in Music.app may not appear immediately in the TUI. Playlists are only updated when:
+
 - The TUI is restarted
 - Background cache update runs
 - User navigates away and back to the playlist
 
 #### Summary of Trade-offs
 
-| Optimization | Benefit | Cost |
-|--------------|---------|------|
-| Track caching | Fast search, instant display | Stale play counts, metadata |
-| Playlist caching | Fast navigation | Delayed sync with Music.app changes |
-| Incremental updates | Faster startup | Only catches new tracks, not metadata changes |
+| Optimization        | Benefit                      | Cost                                          |
+| ------------------- | ---------------------------- | --------------------------------------------- |
+| Track caching       | Fast search, instant display | Stale play counts, metadata                   |
+| Playlist caching    | Fast navigation              | Delayed sync with Music.app changes           |
+| Incremental updates | Faster startup               | Only catches new tracks, not metadata changes |
 
 ## UI Structure
 
@@ -368,7 +374,8 @@ pub enum Focus {
 }
 ```
 
-Tab key cycles focus: RecentlyAdded → Playlists → Content → RecentlyAdded
+- `Tab` switches between left panes: RecentlyAdded ↔ Playlists
+- `h` / `l` switches between columns: left pane ↔ Content
 
 ### Scrolling
 
@@ -392,21 +399,26 @@ pub struct App {
 
 ## Key Bindings
 
-| Key | Function |
-|-----|----------|
-| `Space` | Play/Pause |
-| `n` | Next track |
-| `p` | Previous track |
-| `←` `→` | Seek 10 seconds |
-| `s` | Toggle shuffle |
-| `r` | Cycle repeat mode |
-| `R` | Refresh current playlist (force reload from Music.app) |
-| `j` `k` / `↑` `↓` | Navigate list |
-| `Tab` | Switch focus |
-| `Enter` | Play / Show details |
-| `/` | Start search mode |
-| `Esc` | Cancel search |
-| `q` | Quit |
+| Key               | Function                                               |
+| ----------------- | ------------------------------------------------------ |
+| `Space`           | Play/Pause                                             |
+| `n`               | Next track                                             |
+| `p`               | Previous track                                         |
+| `←` `→`           | Seek 10 seconds                                        |
+| `s`               | Toggle shuffle                                         |
+| `r`               | Cycle repeat mode                                      |
+| `c`               | Cycle highlight color                                  |
+| `R`               | Refresh current playlist (force reload from Music.app) |
+| `j` `k` / `↑` `↓` | Navigate list                                          |
+| `g` `G`           | Jump to top / bottom of list                           |
+| `h` `l`           | Switch column (left pane ↔ content)                    |
+| `Tab`             | Switch pane (Recently Added ↔ Playlists)               |
+| `Enter`           | Play / Show details                                    |
+| `/`               | Start search mode                                      |
+| `Esc`             | Cancel search                                          |
+| `a`               | Add selected track to playlist                         |
+| `d`               | Delete playlist / remove track from playlist           |
+| `q`               | Quit                                                   |
 
 ## Dependencies
 

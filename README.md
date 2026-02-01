@@ -7,6 +7,9 @@ A TUI (Terminal User Interface) application for controlling macOS Music.app with
 - Full keyboard control of Music.app
 - Fast search with background caching
 - Resumable cache (continues from where it left off on next launch)
+- Playlist management (add tracks, create/delete playlists)
+- Customizable highlight color (10 color options, persisted)
+- IME support for Japanese input in search
 
 ## Installation
 
@@ -30,11 +33,17 @@ cargo run
 | `←` `→`           | Seek 10 seconds                     |
 | `s`               | Toggle shuffle                      |
 | `r`               | Cycle repeat mode (off → all → one) |
+| `c`               | Cycle highlight color               |
 | `j` `k` / `↑` `↓` | Navigate list                       |
-| `Tab`             | Switch focus                        |
-| `Enter`           | Play selected item                  |
+| `g` `G`           | Jump to top / bottom                |
+| `h` `l`           | Switch column (left ↔ content)      |
+| `Tab`             | Switch pane (Recently Added ↔ Playlists) |
+| `Enter`           | Play selected / Show details        |
 | `/`               | Start search mode                   |
 | `Esc`             | Cancel search                       |
+| `a`               | Add track to playlist               |
+| `d`               | Delete playlist / track             |
+| `R`               | Refresh current playlist            |
 | `q`               | Quit                                |
 
 ## Architecture
@@ -44,8 +53,9 @@ cargo run
 All track metadata is cached locally for fast search.
 
 ```
-~/Library/Caches/macos-music-tui/tracks.json
-~/Library/Caches/macos-music-tui/playlists.json
+~/Library/Caches/macos-music-tui/tracks.json     # Track metadata cache
+~/Library/Caches/macos-music-tui/playlists.json  # Playlist cache
+~/Library/Caches/macos-music-tui/settings.json   # User settings (highlight color)
 ```
 
 #### How Caching Works
@@ -154,11 +164,12 @@ Example: `beatles abbey` → Matches "Abbey Road" by "The Beatles"
 
 ```
 src/
-├── main.rs      # Entry point, event loop
-├── app.rs       # Application state, business logic
-├── ui.rs        # UI rendering (ratatui)
-├── music.rs     # Music.app control (AppleScript)
-└── cache.rs     # Cache management
+├── main.rs          # Entry point, event loop
+├── app.rs           # Application state, business logic
+├── ui.rs            # UI rendering (ratatui)
+├── music.rs         # Music.app control (AppleScript)
+├── cache.rs         # Cache management
+└── accessibility.rs # Playback control (Accessibility API)
 ```
 
 ### Thread Architecture

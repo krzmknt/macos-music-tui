@@ -5,6 +5,7 @@
 ### Context
 
 We needed to implement playback functionality that:
+
 1. Plays a specific track when selected in the TUI
 2. Queues the remaining tracks in the album/playlist
 3. Does not trigger AutoPlay mode
@@ -16,13 +17,13 @@ We adopted the **Temporary Playlist + Sidebar Selection** approach.
 
 ### Alternatives Considered
 
-| Approach | Result | Why Rejected |
-|----------|--------|--------------|
-| AppleScript `play track` | ❌ | Only queues ONE track, then AutoPlay activates |
-| AppleScript `play playlist` | ❌ | Still triggers AutoPlay after playlist ends |
-| AppleScript `reveal` + Play | ❌ | Plays previously selected content, not revealed track |
-| Direct album selection | ❌ | Albums don't appear in sidebar (impossible) |
-| **Temp playlist + sidebar** | ✅ | **Adopted** - queues all tracks properly |
+| Approach                    | Result | Why Rejected                                          |
+| --------------------------- | ------ | ----------------------------------------------------- |
+| AppleScript `play track`    | ❌     | Only queues ONE track, then AutoPlay activates        |
+| AppleScript `play playlist` | ❌     | Still triggers AutoPlay after playlist ends           |
+| AppleScript `reveal` + Play | ❌     | Plays previously selected content, not revealed track |
+| Direct album selection      | ❌     | Albums don't appear in sidebar (impossible)           |
+| **Temp playlist + sidebar** | ✅     | **Adopted** - queues all tracks properly              |
 
 ### Consequences
 
@@ -46,6 +47,7 @@ end tell
 ```
 
 **Expected behavior:**
+
 ```
 Queue:
 ├─ Track 3 (now playing)
@@ -55,6 +57,7 @@ Queue:
 ```
 
 **Actual behavior:**
+
 ```
 Queue:
 └─ Track 3 (now playing) ← Only this ONE track!
@@ -108,10 +111,12 @@ Music.app's sidebar has a specific structure that treats playlists and albums di
 ```
 
 **Key difference:**
+
 - **Playlists**: Individual playlists appear as sidebar items → can be selected via System Events
 - **Albums**: Only the "Albums" category appears → individual albums (e.g., "Help!") are NOT in sidebar
 
 This is why:
+
 - For **playlists**: Direct sidebar selection works (but we still use temp playlist for rotation)
 - For **albums**: We MUST create a temporary playlist to make it appear in the sidebar
 
@@ -120,6 +125,7 @@ This is why:
 ### Discovery
 
 When selecting a playlist in the sidebar and clicking the Play button:
+
 - All tracks are added to the queue
 - AutoPlay is not triggered
 - GUI can be operated while hidden
@@ -291,11 +297,11 @@ fn click_element(element: &AXUIElement) -> Result<(), String> {
 
 Appropriate delays are placed between each operation:
 
-| Operation | Delay | Reason |
-|-----------|-------|--------|
-| After window setup | 100ms | Wait for UI initialization |
-| After sidebar selection | 100ms | Wait for view update |
-| After Play click | 500ms | Confirm playback before deletion |
+| Operation               | Delay | Reason                           |
+| ----------------------- | ----- | -------------------------------- |
+| After window setup      | 100ms | Wait for UI initialization       |
+| After sidebar selection | 100ms | Wait for view update             |
+| After Play click        | 500ms | Confirm playback before deletion |
 
 ## Error Handling
 
@@ -319,11 +325,11 @@ pub fn play_album_with_context(album_name: &str, track_index: usize) -> Result<(
 
 ### System Requirements
 
-| Limitation | Description |
-|------------|-------------|
+| Limitation                   | Description                                                                                  |
+| ---------------------------- | -------------------------------------------------------------------------------------------- |
 | **Accessibility Permission** | Requires accessibility permission in System Preferences → Security & Privacy → Accessibility |
-| **Music.app State** | Automatically launches Music.app if not running |
-| **Temp Playlist Conflict** | Overwrites any existing playlist named `___TempQueue___` |
+| **Music.app State**          | Automatically launches Music.app if not running                                              |
+| **Temp Playlist Conflict**   | Overwrites any existing playlist named `___TempQueue___`                                     |
 
 ### Sidebar Visibility Requirement (Resolved)
 
@@ -364,6 +370,7 @@ Actual with Repeat OFF:
 **Trade-off accepted**: This is a known compromise. To avoid AutoPlay, we accept that tracks 1 to N-1 may play when Repeat is OFF.
 
 **Potential future solutions**:
+
 - Create a non-circular playlist (N to end only), accepting that 1 to N-1 won't be queued
 - Implement queue monitoring to stop playback at the right time (complex)
 
