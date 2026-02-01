@@ -170,6 +170,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                             KeyCode::Down | KeyCode::Char('j') => {
                                 app.content_down();
                             }
+                            KeyCode::Char('J') => {
+                                app.search_next_album();
+                            }
+                            KeyCode::Char('K') => {
+                                app.search_prev_album();
+                            }
                             KeyCode::Char('g') => {
                                 app.content_top();
                             }

@@ -1319,6 +1319,68 @@ impl App {
         }
     }
 
+    /// 検索結果で次のアルバムにジャンプ (Shift+J)
+    pub fn search_next_album(&mut self) {
+        if self.search_results.is_empty() {
+            return;
+        }
+
+        let current_album = match self.search_results.get(self.content_selected) {
+            Some(item) => &item.album,
+            None => return,
+        };
+
+        // 現在位置から次の異なるアルバムを探す
+        for i in (self.content_selected + 1)..self.search_results.len() {
+            if &self.search_results[i].album != current_album {
+                self.content_selected = i;
+                // スクロール調整
+                if self.content_selected >= self.content_scroll + self.content_visible {
+                    self.content_scroll = self.content_selected.saturating_sub(self.content_visible - 1);
+                }
+                return;
+            }
+        }
+    }
+
+    /// 検索結果で前のアルバムにジャンプ (Shift+K)
+    pub fn search_prev_album(&mut self) {
+        if self.search_results.is_empty() || self.content_selected == 0 {
+            return;
+        }
+
+        let current_album = match self.search_results.get(self.content_selected) {
+            Some(item) => &item.album,
+            None => return,
+        };
+
+        // 現在位置から前の異なるアルバムを探す
+        for i in (0..self.content_selected).rev() {
+            if &self.search_results[i].album != current_album {
+                // そのアルバムの最初のトラックを探す
+                let target_album = &self.search_results[i].album;
+                let mut first_of_album = i;
+                for j in (0..i).rev() {
+                    if &self.search_results[j].album == target_album {
+                        first_of_album = j;
+                    } else {
+                        break;
+                    }
+                }
+                self.content_selected = first_of_album;
+                // スクロール調整
+                if self.content_selected < self.content_scroll {
+                    self.content_scroll = self.content_selected;
+                }
+                return;
+            }
+        }
+
+        // 見つからなければ先頭へ
+        self.content_selected = 0;
+        self.content_scroll = 0;
+    }
+
 
     // ========== プレイリスト追加モード ==========
 
