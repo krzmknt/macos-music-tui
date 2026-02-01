@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode},
+    event::{self, Event, KeyCode, MouseEventKind, EnableMouseCapture, DisableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -20,7 +20,7 @@ use app::{App, Focus};
 fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -29,7 +29,8 @@ fn main() -> Result<()> {
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
-        LeaveAlternateScreen
+        LeaveAlternateScreen,
+        DisableMouseCapture
     )?;
     terminal.show_cursor()?;
 
@@ -61,7 +62,14 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         let timeout = Duration::from_millis(50);
 
         if event::poll(timeout)? {
-            if let Event::Key(key) = event::read()? {
+            let terminal_height = terminal.size()?.height;
+            match event::read()? {
+                Event::Mouse(mouse) => {
+                    if let MouseEventKind::Down(crossterm::event::MouseButton::Left) = mouse.kind {
+                        app.handle_mouse_click(mouse.column, mouse.row, terminal_height);
+                    }
+                }
+                Event::Key(key) => {
                 if !app.search_mode {
                     app.message = None;
                 }
@@ -160,6 +168,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                         _ => {}
                     }
                 }
+                }
+                _ => {}
             }
         }
 

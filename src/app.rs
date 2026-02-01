@@ -661,6 +661,94 @@ impl App {
         }
     }
 
+
+    /// マウスクリックを処理
+    /// 戻り値: クリックが処理されたか
+    pub fn handle_mouse_click(&mut self, x: u16, y: u16, terminal_height: u16) -> bool {
+        // レイアウト計算
+        // margin: 1
+        // header: 4 (実際のレンダリング位置を考慮して+2調整)
+        // footer: 2
+
+        let header_height = 7u16;  // 4 + margin調整
+        let footer_height = 2u16;
+        let left_column_width = 40u16;
+
+        let main_start_y = header_height;
+        let main_end_y = terminal_height.saturating_sub(footer_height + 1);
+        
+        // クリックがメインエリア外なら無視
+        if y < main_start_y || y >= main_end_y {
+            return false;
+        }
+        
+        let relative_y = y - main_start_y;
+        
+        // 左カラム (x < left_column_width + 1 for margin)
+        if x < left_column_width + 1 {
+            // Search: 3行
+            // Recently Added: 12行
+            // Playlists: 残り
+            let search_height = 3u16;
+            let recently_added_height = 12u16;
+            
+            if relative_y < search_height {
+                // Search area - 無視
+                return false;
+            } else if relative_y < search_height + recently_added_height {
+                // Recently Added
+                let card_y = relative_y - search_height;
+                // カード内: ボーダー1 + タイトル1 = 2行がヘッダー
+                if card_y >= 2 {
+                    let item_index = (card_y - 2) as usize + self.recently_added_scroll;
+                    if item_index < self.recently_added.len() {
+                        self.recently_added_selected = item_index;
+                        self.focus = Focus::RecentlyAdded;
+                        self.load_selected_album_tracks();
+                        return true;
+                    }
+                }
+                self.focus = Focus::RecentlyAdded;
+                return true;
+            } else {
+                // Playlists
+                let card_start = search_height + recently_added_height;
+                let card_y = relative_y - card_start;
+                // カード内: ボーダー1 + タイトル1 = 2行がヘッダー
+                if card_y >= 2 {
+                    let item_index = (card_y - 2) as usize + self.playlists_scroll;
+                    if item_index < self.playlists.len() {
+                        self.playlists_selected = item_index;
+                        self.focus = Focus::Playlists;
+                        self.load_selected_playlist_tracks();
+                        return true;
+                    }
+                }
+                self.focus = Focus::Playlists;
+                return true;
+            }
+        } else {
+            // Right column (Content)
+            // ボーダー1 + タイトル1 + ヘッダー1 = 3行がヘッダー
+            if relative_y >= 3 {
+                let item_index = (relative_y - 3) as usize + self.content_scroll;
+                let items = if self.search_mode { &self.search_results } else { &self.content_items };
+                if item_index < items.len() {
+                    // 既に選択済みの曲をクリックしたら再生
+                    if self.content_selected == item_index && self.focus == Focus::Content {
+                        self.play_selected();
+                    } else {
+                        self.content_selected = item_index;
+                        self.focus = Focus::Content;
+                    }
+                    return true;
+                }
+            }
+            self.focus = Focus::Content;
+            return true;
+        }
+    }
+
     pub fn recently_added_up(&mut self) {
         if self.recently_added_selected > 0 {
             self.recently_added_selected -= 1;
