@@ -77,7 +77,6 @@ mmt
 | `/`               | Start search mode                   |
 | `Esc`             | Cancel search                       |
 | `a`               | Add track to playlist               |
-| `d`               | Delete playlist / track             |
 | `R`               | Refresh current playlist            |
 | `q`               | Quit                                |
 

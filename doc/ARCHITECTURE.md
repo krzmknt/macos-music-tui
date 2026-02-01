@@ -419,7 +419,6 @@ pub struct App {
 | `/`               | Start search mode                                      |
 | `Esc`             | Cancel search                                          |
 | `a`               | Add selected track to playlist                         |
-| `d`               | Delete playlist / remove track from playlist           |
 | `q`               | Quit                                                   |
 
 ## Dependencies
