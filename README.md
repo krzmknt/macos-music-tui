@@ -29,19 +29,6 @@ https://github.com/user-attachments/assets/408ac5d1-c1cc-44a8-bde3-7f9706c9c211
 brew install krzmknt/tap/mmt
 ```
 
-### Cargo
-
-```bash
-cargo install macos-music-tui
-```
-
-### Manual
-
-```bash
-curl -L https://github.com/krzmknt/macos-music-tui/releases/download/v0.1.0/mmt-0.1.0-darwin-arm64.tar.gz | tar xz
-sudo mv mmt /usr/local/bin/
-```
-
 ### Build from source
 
 ```bash
@@ -133,7 +120,7 @@ All track metadata is cached locally for fast search.
 │  │  - total_tracks: usize                              │    │
 │  └─────────────────────────────────────────────────────┘    │
 │                              │                              │
-│                    Save every 50 tracks                     │
+│                    Save every 100 tracks                    │
 │                              ▼                              │
 │                    ~/Library/Caches/.../tracks.json         │
 └─────────────────────────────────────────────────────────────┘
