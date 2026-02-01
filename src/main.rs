@@ -103,22 +103,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                     continue;
                 }
 
-                if !app.search_mode && !app.add_to_playlist_mode && !app.delete_confirm_mode {
+                if !app.search_mode && !app.add_to_playlist_mode {
                     app.message = None;
                 }
 
-                if app.delete_confirm_mode {
-                    // 削除確認モード
-                    match key.code {
-                        KeyCode::Char('y') | KeyCode::Char('Y') => {
-                            app.confirm_delete();
-                        }
-                        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                            app.cancel_delete();
-                        }
-                        _ => {}
-                    }
-                } else if app.new_playlist_input_mode {
+                if app.new_playlist_input_mode {
                     // 新規プレイリスト名入力モード
                     match key.code {
                         KeyCode::Esc => {

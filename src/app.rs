@@ -55,12 +55,6 @@ pub enum DragTarget {
     CardDivider,        // Recently AddedとPlaylistsの境界
 }
 
-#[derive(Debug, Clone)]
-pub enum DeleteTarget {
-    Playlist { name: String },
-    TrackFromPlaylist { playlist_name: String, track_name: String, track_index: usize },
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum HighlightColor {
     Cyan,
@@ -153,10 +147,6 @@ pub struct App {
     pub new_playlist_input_mode: bool,
     pub new_playlist_name: String,
     pub playlist_refreshing: Option<String>,  // 更新中のプレイリスト名
-
-    // 削除確認モード
-    pub delete_confirm_mode: bool,
-    pub delete_confirm_target: Option<DeleteTarget>,
 
     position_pending: bool,
     full_pending: bool,
@@ -462,8 +452,6 @@ impl App {
             new_playlist_input_mode: false,
             new_playlist_name: String::new(),
             playlist_refreshing: None,
-            delete_confirm_mode: false,
-            delete_confirm_target: None,
             position_pending: false,
             full_pending: false,
             spinner_frame: 0,
@@ -1561,163 +1549,6 @@ impl App {
                 self.playlist_refreshing = None;
                 self.playlist_refresh_rx = None;
             }
-        }
-    }
-
-
-    // ========== 削除機能 ==========
-
-    /// 削除確認モードを開始（プレイリスト削除）
-    pub fn start_delete_playlist(&mut self) {
-        if self.focus != Focus::Playlists || self.playlists.is_empty() {
-            return;
-        }
-
-        if let Some(playlist) = self.playlists.get(self.playlists_selected) {
-            self.delete_confirm_target = Some(DeleteTarget::Playlist {
-                name: playlist.name.clone(),
-            });
-            self.delete_confirm_mode = true;
-        }
-    }
-
-    /// 削除確認モードを開始（プレイリストから曲を削除）
-    pub fn start_delete_track_from_playlist(&mut self) {
-        if self.focus != Focus::Content || !self.is_playlist_detail {
-            return;
-        }
-
-        if let Some(track) = self.content_items.get(self.content_selected) {
-            self.delete_confirm_target = Some(DeleteTarget::TrackFromPlaylist {
-                playlist_name: self.content_source_name.clone(),
-                track_name: track.name.clone(),
-                track_index: self.content_selected,
-            });
-            self.delete_confirm_mode = true;
-        }
-    }
-
-    /// 削除確認モードをキャンセル
-    pub fn cancel_delete(&mut self) {
-        self.delete_confirm_mode = false;
-        self.delete_confirm_target = None;
-    }
-
-    /// 削除を実行
-    pub fn confirm_delete(&mut self) {
-        let Some(target) = self.delete_confirm_target.take() else {
-            self.cancel_delete();
-            return;
-        };
-
-        match target {
-            DeleteTarget::Playlist { name } => {
-                match Self::delete_playlist_applescript(&name) {
-                    Ok(_) => {
-                        // UIから削除
-                        self.playlists.retain(|p| p.name != name);
-                        // キャッシュから削除
-                        self.playlist_cache.remove(&name);
-                        let _ = self.playlist_cache.save();
-                        // 選択位置を調整
-                        if self.playlists_selected >= self.playlists.len() && !self.playlists.is_empty() {
-                            self.playlists_selected = self.playlists.len() - 1;
-                        }
-                        // 詳細画面をクリア
-                        if self.content_source_name == name {
-                            self.content_items.clear();
-                            self.content_title.clear();
-                            self.content_source_name.clear();
-                        }
-                        self.message = Some(format!("Deleted playlist '{}'", name));
-                    }
-                    Err(e) => {
-                        self.message = Some(format!("Error: {}", e));
-                    }
-                }
-            }
-            DeleteTarget::TrackFromPlaylist { playlist_name, track_name, track_index } => {
-                match Self::delete_track_from_playlist_applescript(&playlist_name, track_index + 1) {
-                    Ok(_) => {
-                        // UIから削除
-                        if track_index < self.content_items.len() {
-                            self.content_items.remove(track_index);
-                        }
-                        // 選択位置を調整
-                        if self.content_selected >= self.content_items.len() && !self.content_items.is_empty() {
-                            self.content_selected = self.content_items.len() - 1;
-                        }
-                        // キャッシュを更新
-                        self.refresh_playlist_cache(&playlist_name);
-                        self.message = Some(format!("Removed '{}' from playlist", track_name));
-                    }
-                    Err(e) => {
-                        self.message = Some(format!("Error: {}", e));
-                    }
-                }
-            }
-        }
-
-        self.delete_confirm_mode = false;
-    }
-
-    /// 削除確認メッセージを取得
-    pub fn get_delete_confirm_message(&self) -> Option<String> {
-        self.delete_confirm_target.as_ref().map(|target| match target {
-            DeleteTarget::Playlist { name } => {
-                format!("Delete playlist '{}'? (y/n)", name)
-            }
-            DeleteTarget::TrackFromPlaylist { track_name, .. } => {
-                format!("Remove '{}' from playlist? (y/n)", track_name)
-            }
-        })
-    }
-
-    /// AppleScript: プレイリストを削除
-    fn delete_playlist_applescript(playlist_name: &str) -> Result<(), String> {
-        let script = format!(
-            r#"tell application "Music"
-                delete (first playlist whose name is "{}")
-            end tell"#,
-            playlist_name.replace('"', "\\\"")
-        );
-
-        let output = std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
-            .output()
-            .map_err(|e| format!("Failed to run osascript: {}", e))?;
-
-        if output.status.success() {
-            Ok(())
-        } else {
-            let err = String::from_utf8_lossy(&output.stderr);
-            Err(err.trim().to_string())
-        }
-    }
-
-    /// AppleScript: プレイリストから曲を削除（インデックス指定、1-based）
-    fn delete_track_from_playlist_applescript(playlist_name: &str, track_index: usize) -> Result<(), String> {
-        let script = format!(
-            r#"tell application "Music"
-                set targetPlaylist to (first playlist whose name is "{}")
-                delete track {} of targetPlaylist
-            end tell"#,
-            playlist_name.replace('"', "\\\""),
-            track_index
-        );
-
-        let output = std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
-            .output()
-            .map_err(|e| format!("Failed to run osascript: {}", e))?;
-
-        if output.status.success() {
-            Ok(())
-        } else {
-            let err = String::from_utf8_lossy(&output.stderr);
-            Err(err.trim().to_string())
         }
     }
 }

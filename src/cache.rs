@@ -387,11 +387,6 @@ impl PlaylistCache {
     pub fn insert(&mut self, playlist: CachedPlaylist) {
         self.playlists.insert(playlist.name.clone(), playlist);
     }
-
-
-    pub fn remove(&mut self, playlist_name: &str) {
-        self.playlists.remove(playlist_name);
-    }
 }
 
 // アプリケーション設定

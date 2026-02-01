@@ -1030,18 +1030,6 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     let key_style = Style::default().fg(accent_color(app));
     let sep_style = Style::default().fg(TEXT_DIM);
-    let warn_style = Style::default().fg(Color::Rgb(255, 100, 100));
-
-    // 削除確認モードの場合は確認メッセージを表示
-    if app.delete_confirm_mode {
-        if let Some(msg) = app.get_delete_confirm_message() {
-            let paragraph = Paragraph::new(Line::from(vec![
-                Span::styled(msg, warn_style),
-            ]));
-            frame.render_widget(paragraph, area);
-            return;
-        }
-    }
 
     let commands: Vec<(&str, &str)> = if app.new_playlist_input_mode {
         // 新規プレイリスト名入力モード
