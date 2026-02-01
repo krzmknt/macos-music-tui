@@ -1,5 +1,7 @@
 # Playback System Details
 
+> **Tested with**: Music.app Version 1.6.0.151 (macOS Sequoia, 2025-02-01)
+
 ## Architecture Decision Record (ADR)
 
 ### Context

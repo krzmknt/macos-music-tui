@@ -1,5 +1,7 @@
 # macos-music-tui Architecture Documentation
 
+> **Tested with**: Music.app Version 1.6.0.151 (macOS Sequoia, 2025-02-01)
+
 ## Overview
 
 macos-music-tui is a TUI (Terminal User Interface) application for controlling macOS Music.app with keyboard.
