@@ -25,6 +25,19 @@ cargo build --release
 cargo run
 ```
 
+### First Launch Note
+
+> ⚠️ **Initial Cache Building**
+>
+> When no cache exists (first launch or after cache deletion), the application caches all track metadata from your Music library.
+> This process runs in the background but may take several minutes depending on your library size.
+>
+> - **Keep the TUI open** while caching is in progress
+> - **Progress is saved** - if you close the app, caching will resume from where it left off on next launch
+> - **Search requires cache** - search functionality becomes available after caching completes
+>
+> You can see the caching progress in the Search card (e.g., "⠋ Caching: 5000/30000").
+
 ### Key Bindings
 
 | Key               | Function                            |
