@@ -66,6 +66,7 @@ pub struct App {
     pub content_scroll: usize,
     pub content_loading: bool,
     pub content_title: String,  // アルバム/プレイリスト詳細表示時のタイトル
+    pub content_source_name: String,  // 再生用のアルバム/プレイリスト名
     pub is_playlist_detail: bool,  // プレイリスト詳細表示中かどうか
 
     pub playlists: Vec<ListItem>,
@@ -304,6 +305,32 @@ impl App {
             }
         }).collect();
 
+        // 起動時に最初のアルバムを読み込む（content_source_nameを初期化）
+        let (initial_content_items, initial_content_title, initial_content_source_name) =
+            if let Some(album_item) = recently_added.first() {
+                let album_name = &album_item.album;
+                let tracks = cache.get_tracks_by_album(album_name);
+                let year = tracks.first().map(|t| t.year).unwrap_or(0);
+                let year_str = if year > 0 { format!(" ({})", year) } else { String::new() };
+                let title = format!("{} - {}{}", album_name, album_item.artist, year_str);
+                let items: Vec<ListItem> = tracks
+                    .into_iter()
+                    .map(|t| ListItem {
+                        name: t.name.clone(),
+                        artist: t.artist.clone(),
+                        album: t.album.clone(),
+                        time: t.time.clone(),
+                        year: t.year,
+                        track_number: t.track_number,
+                        played_count: t.played_count,
+                        favorited: t.favorited,
+                    })
+                    .collect();
+                (items, title, album_name.clone())
+            } else {
+                (Vec::new(), String::new(), String::new())
+            };
+
         Self {
             track: TrackInfo::default(),
             volume: 50,
@@ -315,11 +342,12 @@ impl App {
             recently_added,
             recently_added_selected: 0,
             recently_added_scroll: 0,
-            content_items: Vec::new(),
+            content_items: initial_content_items,
             content_selected: 0,
             content_scroll: 0,
             content_loading: false,
-            content_title: String::new(),
+            content_title: initial_content_title,
+            content_source_name: initial_content_source_name,
             is_playlist_detail: false,
             playlists,
             playlists_selected: 0,
@@ -567,6 +595,19 @@ impl App {
             Focus::Content => Focus::RecentlyAdded,
             Focus::Search => Focus::Content,
         };
+
+        // Reload content when focus changes to ensure content_source_name matches current selection
+        match self.focus {
+            Focus::RecentlyAdded => {
+                self.load_selected_album_tracks();
+            }
+            Focus::Playlists => {
+                if !self.playlists.is_empty() {
+                    self.load_selected_playlist_tracks();
+                }
+            }
+            _ => {}
+        }
     }
 
     pub fn recently_added_up(&mut self) {
@@ -596,6 +637,7 @@ impl App {
             let year_str = if year > 0 { format!(" ({})", year) } else { String::new() };
 
             self.content_title = format!("{} - {}{}", album_name, album_item.artist, year_str);
+            self.content_source_name = album_name.clone();
             self.is_playlist_detail = false;
             self.content_items = tracks
                 .into_iter()
@@ -620,6 +662,7 @@ impl App {
         if let Some(playlist_item) = self.playlists.get(self.playlists_selected) {
             let playlist_name = playlist_item.name.clone();
             self.content_title = playlist_name.clone();
+            self.content_source_name = playlist_name.clone();
             self.is_playlist_detail = true;
 
             // キャッシュを確認
@@ -698,7 +741,7 @@ impl App {
     }
 
     fn adjust_playlists_scroll(&mut self) {
-        let visible = 11usize; // カード高さ14 - タイトル1 - ボーダー2 = 11行
+        let visible = 10usize; // カード高さ14 - タイトル1 - ボーダー2 - 余白1 = 10行
         if self.playlists_selected < self.playlists_scroll {
             self.playlists_scroll = self.playlists_selected;
         } else if self.playlists_selected >= self.playlists_scroll + visible {
@@ -747,29 +790,29 @@ impl App {
                 }
             }
         } else if self.is_playlist_detail {
-            // プレイリスト詳細からの再生 - 選択した曲を再生
-            if let Some(item) = self.content_items.get(self.content_selected) {
-                let name = item.name.clone();
-                let artist = item.artist.clone();
-                self.message = Some(format!("▶ {}", name));
-
-                // 曲単体を再生
-                let result = MusicController::play_track(&name, &artist);
-                if let Err(e) = result {
-                    self.message = Some(format!("Error: {}", e));
-                }
+            // プレイリスト詳細からの再生 - プレイリスト全体をキューに追加
+            let playlist_name = self.content_source_name.clone();
+            if !playlist_name.is_empty() {
+                self.message = Some(format!("▶ Playlist: {}", playlist_name));
+                // 同期的に実行（競合を避けるため）
+                let _ = accessibility::play_playlist_with_context(&playlist_name);
             }
         } else {
-            // アルバム詳細からの再生 - 選択した曲を再生
-            if let Some(item) = self.content_items.get(self.content_selected) {
-                let name = item.name.clone();
-                let artist = item.artist.clone();
-                self.message = Some(format!("▶ {}", name));
-
-                // 曲単体を再生（AppleScriptで直接再生）
-                let result = MusicController::play_track(&name, &artist);
-                if let Err(e) = result {
-                    self.message = Some(format!("Error: {}", e));
+            // アルバム詳細からの再生 - アルバム全体をキューに追加
+            // content_itemsから直接アルバム名を取得（より確実）
+            let album_name = self.content_items
+                .first()
+                .map(|item| item.album.clone())
+                .unwrap_or_else(|| self.content_source_name.clone());
+            if !album_name.is_empty() {
+                // 同期的に実行（競合を避けるため）
+                match accessibility::play_album_with_context(&album_name) {
+                    Ok(_) => {
+                        self.message = Some(format!("▶ Album: {}", album_name));
+                    }
+                    Err(e) => {
+                        self.message = Some(format!("Error: {}", e));
+                    }
                 }
             }
         }

@@ -400,13 +400,14 @@ fn draw_playlists(frame: &mut Frame, app: &App, area: Rect) {
         let empty = Paragraph::new(Span::styled("Loading...", Style::default().fg(TEXT_DIM)));
         frame.render_widget(empty, empty_area);
     } else {
-        for (i, item) in app.playlists.iter().enumerate() {
-            let y = inner.y + 1 + i as u16;
+        let visible_height = (inner.height.saturating_sub(1)) as usize; // -1 for title
+        for (idx, item) in app.playlists.iter().enumerate().skip(app.playlists_scroll).take(visible_height) {
+            let y = inner.y + 1 + (idx - app.playlists_scroll) as u16;
             if y >= inner.y + inner.height {
                 break;
             }
             let line_area = Rect { x: inner.x, y, width: inner.width, height: 1 };
-            let is_selected = i == app.playlists_selected;
+            let is_selected = idx == app.playlists_selected;
             let style = if is_selected && is_focused {
                 Style::default().fg(ACCENT_CYAN)
             } else {
