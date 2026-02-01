@@ -208,12 +208,6 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                             KeyCode::Char(c) => {
                                 app.search_input(c);
                             }
-                            KeyCode::Up => {
-                                app.content_up();
-                            }
-                            KeyCode::Down => {
-                                app.content_down();
-                            }
                             _ => {}
                         }
                     }
