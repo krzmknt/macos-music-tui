@@ -158,6 +158,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                             KeyCode::Down | KeyCode::Char('j') => {
                                 app.content_down();
                             }
+                            KeyCode::Char('g') => {
+                                app.content_top();
+                            }
+                            KeyCode::Char('G') => {
+                                app.content_bottom();
+                            }
                             KeyCode::Char('h') => {
                                 // Searchカードに戻る
                                 app.focus = Focus::Search;
@@ -247,6 +253,22 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                                 Focus::RecentlyAdded => app.recently_added_down(),
                                 Focus::Playlists => app.playlists_down(),
                                 Focus::Content => app.content_down(),
+                                _ => {}
+                            }
+                        }
+                        KeyCode::Char('g') => {
+                            match app.focus {
+                                Focus::RecentlyAdded => app.recently_added_top(),
+                                Focus::Playlists => app.playlists_top(),
+                                Focus::Content => app.content_top(),
+                                _ => {}
+                            }
+                        }
+                        KeyCode::Char('G') => {
+                            match app.focus {
+                                Focus::RecentlyAdded => app.recently_added_bottom(),
+                                Focus::Playlists => app.playlists_bottom(),
+                                Focus::Content => app.content_bottom(),
                                 _ => {}
                             }
                         }

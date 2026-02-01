@@ -912,7 +912,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         // プレイリスト追加モード
         vec![
             ("Return", "add"),
-            ("j/k", "nav"),
+            ("j/k/g/G", "nav"),
             ("Esc", "cancel"),
         ]
     } else if app.search_mode {
@@ -920,7 +920,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             // 検索結果にフォーカス中
             vec![
                 ("Return", "play"),
-                ("j/k", "nav"),
+                ("j/k/g/G", "nav"),
                 ("h", "back"),
                 ("l", "album"),
                 ("a", "add"),
@@ -938,7 +938,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         vec![
             ("Space", "play/pause"),
             ("Return", "play"),
-            ("j/k", "nav"),
+            ("j/k/g/G", "nav"),
             ("h", "back"),
             ("l", "album"),
             ("a", "add"),
@@ -953,7 +953,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             ("Return", "play"),
             ("n/p", "track"),
             ("←→", "seek"),
-            ("j/k", "nav"),
+            ("j/k/g/G", "nav"),
             ("h/l", "column"),
             ("a", "add"),
             ("/", "search"),
@@ -964,7 +964,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         vec![
             ("Space", "play/pause"),
             ("Return", "select"),
-            ("j/k", "nav"),
+            ("j/k/g/G", "nav"),
             ("h/l", "column"),
             ("d", "delete"),
             ("Tab", "pane"),
@@ -980,7 +980,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             ("s", "shuffle"),
             ("r", "repeat"),
             ("R", "refresh"),
-            ("j/k", "nav"),
+            ("j/k/g/G", "nav"),
             ("h/l", "column"),
             ("Tab", "pane"),
             ("/", "search"),

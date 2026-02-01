@@ -911,6 +911,23 @@ impl App {
         }
     }
 
+
+    pub fn recently_added_top(&mut self) {
+        if !self.recently_added.is_empty() {
+            self.recently_added_selected = 0;
+            self.recently_added_scroll = 0;
+            self.load_selected_album_tracks();
+        }
+    }
+
+    pub fn recently_added_bottom(&mut self) {
+        if !self.recently_added.is_empty() {
+            self.recently_added_selected = self.recently_added.len() - 1;
+            self.adjust_recently_added_scroll();
+            self.load_selected_album_tracks();
+        }
+    }
+
     /// 選択中のアルバムのトラックを読み込む
     pub fn load_selected_album_tracks(&mut self) {
         if let Some(album_item) = self.recently_added.get(self.recently_added_selected) {
@@ -1046,6 +1063,23 @@ impl App {
         }
     }
 
+
+    pub fn playlists_top(&mut self) {
+        if !self.playlists.is_empty() {
+            self.playlists_selected = 0;
+            self.playlists_scroll = 0;
+            self.load_selected_playlist_tracks();
+        }
+    }
+
+    pub fn playlists_bottom(&mut self) {
+        if !self.playlists.is_empty() {
+            self.playlists_selected = self.playlists.len() - 1;
+            self.adjust_playlists_scroll();
+            self.load_selected_playlist_tracks();
+        }
+    }
+
     fn adjust_playlists_scroll(&mut self) {
         let visible = self.playlists_visible;
         if visible == 0 {
@@ -1073,6 +1107,21 @@ impl App {
             self.content_selected += 1;
         }
         self.adjust_scroll(len);
+    }
+
+
+    pub fn content_top(&mut self) {
+        self.content_selected = 0;
+        self.content_scroll = 0;
+    }
+
+    pub fn content_bottom(&mut self) {
+        let items = if self.search_mode { &self.search_results } else { &self.content_items };
+        let len = items.len();
+        if len > 0 {
+            self.content_selected = len - 1;
+            self.adjust_scroll(len);
+        }
     }
 
     fn adjust_scroll(&mut self, _len: usize) {
