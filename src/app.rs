@@ -148,7 +148,9 @@ pub struct App {
     pub search_cursor: usize,  // カーソル位置（文字数）
     pub search_results: Vec<ListItem>,
     pub search_sort_mode: SearchSortMode,
+    search_results_all: Vec<ListItem>,      // 全検索結果（遅延読み込み用）
     search_results_unsorted: Vec<ListItem>,  // ソート切替用にオリジナルを保持
+    pub search_total_count: usize,           // 検索結果の総数
 
     // プレイリスト追加モード
     pub add_to_playlist_mode: bool,
@@ -458,7 +460,9 @@ impl App {
             search_cursor: 0,
             search_results: Vec::new(),
             search_sort_mode: SearchSortMode::Default,
+            search_results_all: Vec::new(),
             search_results_unsorted: Vec::new(),
+            search_total_count: 0,
             add_to_playlist_mode: false,
             track_to_add: None,
             new_playlist_input_mode: false,
@@ -1184,6 +1188,11 @@ impl App {
             self.content_selected += 1;
         }
         self.adjust_scroll(len);
+
+        // 検索モードで残り20件以下になったら追加読み込み
+        if self.search_mode && self.content_selected + 20 >= self.search_results.len() {
+            self.load_more_search_results();
+        }
     }
 
 
@@ -1263,8 +1272,8 @@ impl App {
         self.search_mode = true;
         self.search_query.clear();
         self.search_cursor = 0;
-        self.search_results.clear();
         self.focus = Focus::Search;
+        self.do_search();  // 空クエリで全曲表示
     }
 
     pub fn cancel_search(&mut self) {
@@ -1272,6 +1281,9 @@ impl App {
         self.search_query.clear();
         self.search_cursor = 0;
         self.search_results.clear();
+        self.search_results_all.clear();
+        self.search_results_unsorted.clear();
+        self.search_total_count = 0;
         self.focus = Focus::RecentlyAdded;
     }
 
@@ -1292,11 +1304,7 @@ impl App {
                 self.search_cursor -= 1;
             }
         }
-        if self.search_query.is_empty() {
-            self.search_results.clear();
-        } else {
-            self.do_search();
-        }
+        self.do_search();
     }
 
     /// カーソルを行頭に移動 (Ctrl+A)
@@ -1328,47 +1336,74 @@ impl App {
     pub fn search_kill_line(&mut self) {
         let byte_pos: usize = self.search_query.chars().take(self.search_cursor).map(|c| c.len_utf8()).sum();
         self.search_query.truncate(byte_pos);
-        if self.search_query.is_empty() {
-            self.search_results.clear();
-        } else {
-            self.do_search();
-        }
+        self.do_search();
     }
 
+    const SEARCH_PAGE_SIZE: usize = 200;
+
     fn do_search(&mut self) {
-        if self.search_query.len() >= 2 {
-            // キャッシュから検索（高速・同期）
-            let mut results: Vec<_> = self.cache
-                .search(&self.search_query)
-                .into_iter()
-                .collect();
-            
-            // Artist昇順, Year昇順, Album昇順, Disc昇順, Track昇順 でソート
-            results.sort_by(|a, b| {
-                a.artist.cmp(&b.artist)
-                    .then_with(|| a.year.cmp(&b.year))
-                    .then_with(|| a.album.cmp(&b.album))
-                    .then_with(|| a.disc_number.cmp(&b.disc_number))
-                    .then_with(|| a.track_number.cmp(&b.track_number))
-            });
-            
-            self.search_results = results
-                .into_iter()
-                .map(|t| ListItem {
-                    name: t.name.clone(),
-                    artist: t.artist.clone(),
-                    album: t.album.clone(),
-                    time: t.time.clone(),
-                    year: t.year,
-                    track_number: t.track_number,
-                    played_count: t.played_count,
-                    favorited: t.favorited,
-                })
-                .collect();
-            self.search_results_unsorted = self.search_results.clone();
-            self.search_sort_mode = SearchSortMode::Default;
-            self.content_selected = 0;
-            self.content_scroll = 0;
+        // キャッシュから検索（高速・同期）
+        let mut results: Vec<_> = self.cache
+            .search(&self.search_query)
+            .into_iter()
+            .collect();
+
+        // Artist昇順, Year昇順, Album昇順, Disc昇順, Track昇順 でソート
+        results.sort_by(|a, b| {
+            a.artist.cmp(&b.artist)
+                .then_with(|| a.year.cmp(&b.year))
+                .then_with(|| a.album.cmp(&b.album))
+                .then_with(|| a.disc_number.cmp(&b.disc_number))
+                .then_with(|| a.track_number.cmp(&b.track_number))
+        });
+
+        // 全結果をListItemに変換
+        self.search_results_all = results
+            .into_iter()
+            .map(|t| ListItem {
+                name: t.name.clone(),
+                artist: t.artist.clone(),
+                album: t.album.clone(),
+                time: t.time.clone(),
+                year: t.year,
+                track_number: t.track_number,
+                played_count: t.played_count,
+                favorited: t.favorited,
+            })
+            .collect();
+
+        self.search_total_count = self.search_results_all.len();
+
+        // 最初の200件のみ表示
+        let initial_count = self.search_results_all.len().min(Self::SEARCH_PAGE_SIZE);
+        self.search_results = self.search_results_all[..initial_count].to_vec();
+        self.search_results_unsorted = self.search_results.clone();
+        self.search_sort_mode = SearchSortMode::Default;
+        self.content_selected = 0;
+        self.content_scroll = 0;
+    }
+
+    /// 検索結果をさらに読み込む（スクロール時に呼び出し）
+    pub fn load_more_search_results(&mut self) {
+        if self.search_results.len() >= self.search_results_all.len() {
+            return; // すでに全て読み込み済み
+        }
+
+        let current_len = self.search_results.len();
+        let next_len = (current_len + Self::SEARCH_PAGE_SIZE).min(self.search_results_all.len());
+
+        // ソートモードに応じて追加
+        match self.search_sort_mode {
+            SearchSortMode::Default => {
+                self.search_results = self.search_results_all[..next_len].to_vec();
+                self.search_results_unsorted = self.search_results.clone();
+            }
+            SearchSortMode::PlayCount => {
+                // 再生回数順の場合は全体をソートしてから取得
+                let mut sorted = self.search_results_all.clone();
+                sorted.sort_by(|a, b| b.played_count.cmp(&a.played_count));
+                self.search_results = sorted[..next_len].to_vec();
+            }
         }
     }
 
@@ -1383,19 +1418,24 @@ impl App {
 
     /// 検索結果のソートモードを切り替え (s key)
     pub fn toggle_search_sort(&mut self) {
-        if self.search_results.is_empty() {
+        if self.search_results_all.is_empty() {
             return;
         }
 
         match self.search_sort_mode {
             SearchSortMode::Default => {
-                // 再生回数降順でソート
-                self.search_results.sort_by(|a, b| b.played_count.cmp(&a.played_count));
+                // 再生回数降順でソート（全結果に適用）
+                let mut sorted = self.search_results_all.clone();
+                sorted.sort_by(|a, b| b.played_count.cmp(&a.played_count));
+                let initial_count = sorted.len().min(Self::SEARCH_PAGE_SIZE);
+                self.search_results = sorted[..initial_count].to_vec();
                 self.search_sort_mode = SearchSortMode::PlayCount;
             }
             SearchSortMode::PlayCount => {
-                // デフォルト順に戻す
-                self.search_results = self.search_results_unsorted.clone();
+                // デフォルト順に戻す（最初の200件）
+                let initial_count = self.search_results_all.len().min(Self::SEARCH_PAGE_SIZE);
+                self.search_results = self.search_results_all[..initial_count].to_vec();
+                self.search_results_unsorted = self.search_results.clone();
                 self.search_sort_mode = SearchSortMode::Default;
             }
         }
