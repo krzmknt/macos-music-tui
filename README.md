@@ -15,20 +15,20 @@ A TUI (Terminal User Interface) application for controlling macOS Music.app with
 
 ## Installation
 
+### Homebrew (Recommended)
+```bash
+brew install krzmknt/tap/mmt
+```
+
 ### Cargo
 ```bash
 cargo install macos-music-tui
 ```
 
-### Homebrew
+### Manual
 ```bash
-brew tap krzmknt/tap
-brew install mmt
-```
-
-### Nix
-```bash
-nix run github:krzmknt/macos-music-tui
+curl -L https://github.com/krzmknt/macos-music-tui/releases/download/v0.1.0/mmt-0.1.0-darwin-arm64.tar.gz | tar xz
+sudo mv mmt /usr/local/bin/
 ```
 
 ### Build from source
