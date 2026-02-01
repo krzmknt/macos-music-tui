@@ -206,6 +206,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                             KeyCode::Char('s') => {
                                 app.toggle_search_sort();
                             }
+                            KeyCode::Char('c') => {
+                                app.cycle_highlight_color();
+                            }
+                            KeyCode::Char('?') => {
+                                app.show_help = true;
+                            }
                             _ => {}
                         }
                     } else {

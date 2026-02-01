@@ -1127,23 +1127,34 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     let key_style = Style::default().fg(accent_color(app));
     let sep_style = Style::default().fg(TEXT_DIM);
 
+    // 共通コマンド (すべてのカードで表示)
+    let common_commands: Vec<(&str, &str)> = vec![
+        ("c", "color"),
+        ("/", "search"),
+        ("?", "help"),
+    ];
+
     let commands: Vec<(&str, &str)> = if app.new_playlist_input_mode {
         // 新規プレイリスト名入力モード
-        vec![
+        let mut cmds = vec![
             ("Return", "create"),
             ("Esc", "cancel"),
-        ]
+        ];
+        cmds.extend(common_commands.iter().cloned());
+        cmds
     } else if app.add_to_playlist_mode {
         // プレイリスト追加モード
-        vec![
+        let mut cmds = vec![
             ("Return", "add"),
             ("j/k/g/G", "nav"),
             ("Esc", "cancel"),
-        ]
+        ];
+        cmds.extend(common_commands.iter().cloned());
+        cmds
     } else if app.search_mode {
         if app.focus == Focus::Content {
             // 検索結果にフォーカス中
-            vec![
+            let mut cmds = vec![
                 ("Return", "play"),
                 ("j/k/g/G", "nav"),
                 ("h", "back"),
@@ -1151,9 +1162,11 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
                 ("s", "sort"),
                 ("a", "add"),
                 ("Esc", "cancel"),
-            ]
+            ];
+            cmds.extend(common_commands.iter().cloned());
+            cmds
         } else {
-            // Searchカードにフォーカス中
+            // Searchカードにフォーカス中 (文字入力モードなので c / ? は表示しない)
             vec![
                 ("Return", "search"),
                 ("Esc", "cancel"),
@@ -1168,6 +1181,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             ("h", "back"),
             ("l", "album"),
             ("a", "add"),
+            ("c", "color"),
             ("/", "search"),
             ("?", "help"),
             ("q", "quit"),
@@ -1182,6 +1196,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             ("j/k/g/G", "nav"),
             ("h/l", "column"),
             ("a", "add"),
+            ("c", "color"),
             ("/", "search"),
             ("?", "help"),
             ("q", "quit"),
@@ -1194,6 +1209,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             ("j/k/g/G", "nav"),
             ("h/l", "column"),
             ("Tab", "pane"),
+            ("c", "color"),
             ("/", "search"),
             ("?", "help"),
             ("q", "quit"),
