@@ -156,6 +156,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                                 _ => {}
                             }
                         }
+                        KeyCode::Char('h') => {
+                            app.focus_left();
+                        }
+                        KeyCode::Char('l') => {
+                            app.focus_right();
+                        }
                         KeyCode::Enter => {
                             match app.focus {
                                 Focus::RecentlyAdded => {

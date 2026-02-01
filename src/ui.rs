@@ -846,7 +846,8 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             ("r", "repeat"),
             ("R", "refresh"),
             ("j/k", "nav"),
-            ("Tab", "focus"),
+            ("h/l", "column"),
+            ("Tab", "pane"),
             ("/", "search"),
             ("q", "quit"),
         ]

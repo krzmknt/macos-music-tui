@@ -637,11 +637,12 @@ impl App {
     }
 
     pub fn focus_next(&mut self) {
+        // Tab: Recently Added <-> Playlists のみ切り替え
         self.focus = match self.focus {
             Focus::RecentlyAdded => Focus::Playlists,
-            Focus::Playlists => Focus::Content,
-            Focus::Content => Focus::RecentlyAdded,
-            Focus::Search => Focus::Content,
+            Focus::Playlists => Focus::RecentlyAdded,
+            Focus::Content => Focus::Content,  // Contentでは何もしない
+            Focus::Search => Focus::Search,
         };
 
         // Reload content when focus changes to ensure content_source_name matches current selection
@@ -655,6 +656,72 @@ impl App {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// h: 左カラムへ移動
+    pub fn focus_left(&mut self) {
+        match self.focus {
+            Focus::Content => {
+                // 詳細から左カラムへ戻る（前のフォーカス位置に戻る）
+                // デフォルトはRecentlyAdded
+                if self.playlists_selected < self.playlists.len() && self.content_source_name == self.playlists.get(self.playlists_selected).map(|p| p.name.as_str()).unwrap_or("") {
+                    self.focus = Focus::Playlists;
+                } else {
+                    self.focus = Focus::RecentlyAdded;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// l: 右カラム（詳細）へ移動、またはプレイリスト曲からアルバム全曲表示へ切替
+    pub fn focus_right(&mut self) {
+        match self.focus {
+            Focus::RecentlyAdded | Focus::Playlists => {
+                self.focus = Focus::Content;
+                self.content_selected = 0;
+                self.content_scroll = 0;
+            }
+            Focus::Content => {
+                // プレイリスト詳細表示中の場合、選択中の曲のアルバム全曲を表示
+                if self.is_playlist_detail {
+                    if let Some(item) = self.content_items.get(self.content_selected) {
+                        let album_name = item.album.clone();
+                        self.show_album_tracks(&album_name);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// アルバム名からアルバム全曲を詳細画面に表示（フォーカスはContentのまま）
+    pub fn show_album_tracks(&mut self, album_name: &str) {
+        let tracks = self.cache.get_tracks_by_album(album_name);
+        if !tracks.is_empty() {
+            let year = tracks.first().map(|t| t.year).unwrap_or(0);
+            let year_str = if year > 0 { format!(" ({})", year) } else { String::new() };
+            let artist = tracks.first().map(|t| t.artist.as_str()).unwrap_or("");
+            
+            self.content_title = format!("{} - {}{}", album_name, artist, year_str);
+            self.content_source_name = album_name.to_string();
+            self.is_playlist_detail = false;
+            self.content_items = tracks
+                .into_iter()
+                .map(|t| ListItem {
+                    name: t.name.clone(),
+                    artist: t.artist.clone(),
+                    album: t.album.clone(),
+                    time: t.time.clone(),
+                    year: t.year,
+                    track_number: t.track_number,
+                    played_count: t.played_count,
+                    favorited: t.favorited,
+                })
+                .collect();
+            self.content_selected = 0;
+            self.content_scroll = 0;
         }
     }
 
