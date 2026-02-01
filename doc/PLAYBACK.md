@@ -1,8 +1,69 @@
 # Playback System Details
 
+## Architecture Decision Record (ADR)
+
+### Context
+
+We needed to implement playback functionality that:
+1. Plays a specific track when selected in the TUI
+2. Queues the remaining tracks in the album/playlist
+3. Does not trigger AutoPlay mode
+4. Keeps the Music.app GUI hidden
+
+### Decision
+
+We adopted the **Temporary Playlist + Sidebar Selection** approach.
+
+### Alternatives Considered
+
+| Approach | Result | Why Rejected |
+|----------|--------|--------------|
+| AppleScript `play track` | ❌ | Only queues ONE track, then AutoPlay activates |
+| AppleScript `play playlist` | ❌ | Still triggers AutoPlay after playlist ends |
+| AppleScript `reveal` + Play | ❌ | Plays previously selected content, not revealed track |
+| Direct album selection | ❌ | Albums don't appear in sidebar (impossible) |
+| **Temp playlist + sidebar** | ✅ | **Adopted** - queues all tracks properly |
+
+### Consequences
+
+- **Positive**: Reliable queue behavior, no AutoPlay, works while hidden
+- **Negative**: Slightly complex implementation, requires Accessibility API permission
+
+---
+
 ## Background and Challenges
 
 The macOS Music.app AppleScript API has important constraints regarding playback.
+
+### Fundamental Problem: Single Track Queuing
+
+The most straightforward approach using AppleScript does **not** queue multiple tracks:
+
+```applescript
+tell application "Music"
+    play track 3 of library playlist 1 whose album is "Help!"
+end tell
+```
+
+**Expected behavior:**
+```
+Queue:
+├─ Track 3 (now playing)
+├─ Track 4
+├─ Track 5
+└─ ...
+```
+
+**Actual behavior:**
+```
+Queue:
+└─ Track 3 (now playing) ← Only this ONE track!
+
+After track ends:
+└─ AutoPlay activates → Random songs based on listening history
+```
+
+This is the root cause of why we cannot use simple AppleScript playback.
 
 ### AutoPlay Problem
 
@@ -24,6 +85,35 @@ end tell
 ```
 
 The `reveal` command only displays the track in the UI but does not "select" it. Clicking the Play button afterwards will play whatever was previously selected.
+
+### Why Albums Cannot Use Direct Sidebar Selection
+
+Music.app's sidebar has a specific structure that treats playlists and albums differently:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Music.app Sidebar                                          │
+├─────────────────────────────────────────────────────────────┤
+│  Library                                                    │
+│    ├─ Recently Added      ← Category (not selectable)      │
+│    ├─ Artists             ← Category (not selectable)      │
+│    ├─ Albums              ← Category (not selectable)      │
+│    └─ Songs               ← Category (not selectable)      │
+│                                                             │
+│  Playlists                                                  │
+│    ├─ My Playlist 1       ← Individual playlist (SELECTABLE)│
+│    ├─ My Playlist 2       ← Individual playlist (SELECTABLE)│
+│    └─ ___TempQueue___     ← Temp playlist (SELECTABLE)     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key difference:**
+- **Playlists**: Individual playlists appear as sidebar items → can be selected via System Events
+- **Albums**: Only the "Albums" category appears → individual albums (e.g., "Help!") are NOT in sidebar
+
+This is why:
+- For **playlists**: Direct sidebar selection works (but we still use temp playlist for rotation)
+- For **albums**: We MUST create a temporary playlist to make it appear in the sidebar
 
 ## Solution: Temporary Playlist Approach
 
