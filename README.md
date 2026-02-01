@@ -2,7 +2,17 @@
 
 A TUI (Terminal User Interface) application for controlling macOS Music.app with keyboard.
 
+```bash
+brew install krzmknt/tap/mmt
+```
+
 > **Tested with**: Music.app Version 1.6.0.151 (macOS Sequoia, 2025-02-01)
+
+## Demo
+
+[![Demo Video](https://img.youtube.com/vi/Omg_Ilf9PII/maxresdefault.jpg)](https://youtu.be/Omg_Ilf9PII)
+
+▶️ Click to watch on YouTube
 
 ## Features
 
