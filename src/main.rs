@@ -197,6 +197,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                             KeyCode::Char('a') => {
                                 app.start_add_to_playlist();
                             }
+                            KeyCode::Char('s') => {
+                                app.toggle_search_sort();
+                            }
                             _ => {}
                         }
                     } else {

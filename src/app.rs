@@ -55,6 +55,12 @@ pub enum DragTarget {
     CardDivider,        // Recently AddedとPlaylistsの境界
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SearchSortMode {
+    Default,            // 検索結果のデフォルト順
+    PlayCount,          // 再生回数降順
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum HighlightColor {
     Cyan,
@@ -140,6 +146,8 @@ pub struct App {
     pub search_mode: bool,
     pub search_query: String,
     pub search_results: Vec<ListItem>,
+    pub search_sort_mode: SearchSortMode,
+    search_results_unsorted: Vec<ListItem>,  // ソート切替用にオリジナルを保持
 
     // プレイリスト追加モード
     pub add_to_playlist_mode: bool,
@@ -447,6 +455,8 @@ impl App {
             search_mode: false,
             search_query: String::new(),
             search_results: Vec::new(),
+            search_sort_mode: SearchSortMode::Default,
+            search_results_unsorted: Vec::new(),
             add_to_playlist_mode: false,
             track_to_add: None,
             new_playlist_input_mode: false,
@@ -1305,6 +1315,8 @@ impl App {
                     favorited: t.favorited,
                 })
                 .collect();
+            self.search_results_unsorted = self.search_results.clone();
+            self.search_sort_mode = SearchSortMode::Default;
             self.content_selected = 0;
             self.content_scroll = 0;
         }
@@ -1317,6 +1329,28 @@ impl App {
             self.content_selected = 0;
             self.content_scroll = 0;
         }
+    }
+
+    /// 検索結果のソートモードを切り替え (s key)
+    pub fn toggle_search_sort(&mut self) {
+        if self.search_results.is_empty() {
+            return;
+        }
+
+        match self.search_sort_mode {
+            SearchSortMode::Default => {
+                // 再生回数降順でソート
+                self.search_results.sort_by(|a, b| b.played_count.cmp(&a.played_count));
+                self.search_sort_mode = SearchSortMode::PlayCount;
+            }
+            SearchSortMode::PlayCount => {
+                // デフォルト順に戻す
+                self.search_results = self.search_results_unsorted.clone();
+                self.search_sort_mode = SearchSortMode::Default;
+            }
+        }
+        self.content_selected = 0;
+        self.content_scroll = 0;
     }
 
     /// 検索結果で次のアルバムにジャンプ (Shift+J)
