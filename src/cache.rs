@@ -216,27 +216,31 @@ impl TrackCache {
     /// あいまい検索 - クエリの各単語がトラック情報に含まれているか
     /// 全て小文字の場合は case insensitive、大文字が含まれる場合は case sensitive
     /// 高度な検索: "Name:{key} Artist:{key} Album:{key}" でフィールド指定検索
+    /// フィールド名は大文字小文字を区別しない (name:, Name:, NAME: など)
+    /// "" または '' で囲むと完全一致検索 (例: artist:"IO")
     pub fn search(&mut self, query: &str) -> Vec<CachedTrack> {
         self.ensure_search_keys();
 
         // フィールド指定フィルタと一般検索語を分離
-        let mut name_filters: Vec<&str> = Vec::new();
-        let mut artist_filters: Vec<&str> = Vec::new();
-        let mut album_filters: Vec<&str> = Vec::new();
+        // SearchFilter: (value, is_exact_match)
+        let mut name_filters: Vec<(String, bool)> = Vec::new();
+        let mut artist_filters: Vec<(String, bool)> = Vec::new();
+        let mut album_filters: Vec<(String, bool)> = Vec::new();
         let mut general_words: Vec<&str> = Vec::new();
 
         for word in query.split_whitespace() {
-            if let Some(key) = word.strip_prefix("Name:") {
-                if !key.is_empty() {
-                    name_filters.push(key);
+            let word_lower = word.to_lowercase();
+            if word_lower.starts_with("name:") {
+                if let Some((value, exact)) = Self::parse_filter_value(&word[5..]) {
+                    name_filters.push((value, exact));
                 }
-            } else if let Some(key) = word.strip_prefix("Artist:") {
-                if !key.is_empty() {
-                    artist_filters.push(key);
+            } else if word_lower.starts_with("artist:") {
+                if let Some((value, exact)) = Self::parse_filter_value(&word[7..]) {
+                    artist_filters.push((value, exact));
                 }
-            } else if let Some(key) = word.strip_prefix("Album:") {
-                if !key.is_empty() {
-                    album_filters.push(key);
+            } else if word_lower.starts_with("album:") {
+                if let Some((value, exact)) = Self::parse_filter_value(&word[6..]) {
+                    album_filters.push((value, exact));
                 }
             } else {
                 general_words.push(word);
@@ -247,22 +251,22 @@ impl TrackCache {
             .iter()
             .filter(|track| {
                 // Name フィルタ (AND条件)
-                for key in &name_filters {
-                    if !Self::smart_case_match(&track.name, key) {
+                for (key, exact) in &name_filters {
+                    if !Self::field_match(&track.name, key, *exact) {
                         return false;
                     }
                 }
 
                 // Artist フィルタ (AND条件)
-                for key in &artist_filters {
-                    if !Self::smart_case_match(&track.artist, key) {
+                for (key, exact) in &artist_filters {
+                    if !Self::field_match(&track.artist, key, *exact) {
                         return false;
                     }
                 }
 
                 // Album フィルタ (AND条件)
-                for key in &album_filters {
-                    if !Self::smart_case_match(&track.album, key) {
+                for (key, exact) in &album_filters {
+                    if !Self::field_match(&track.album, key, *exact) {
                         return false;
                     }
                 }
@@ -285,6 +289,36 @@ impl TrackCache {
             })
             .cloned()
             .collect()
+    }
+
+    /// フィルタ値をパース: 引用符で囲まれていれば (値, true)、そうでなければ (値, false)
+    fn parse_filter_value(value: &str) -> Option<(String, bool)> {
+        if value.is_empty() {
+            return None;
+        }
+
+        // "" または '' で囲まれている場合は完全一致
+        if (value.starts_with('"') && value.ends_with('"')) ||
+           (value.starts_with('\'') && value.ends_with('\'')) {
+            let inner = &value[1..value.len()-1];
+            if inner.is_empty() {
+                return None;
+            }
+            Some((inner.to_string(), true))
+        } else {
+            Some((value.to_string(), false))
+        }
+    }
+
+    /// フィールドマッチ: exact=true なら完全一致、false ならスマートケース部分一致
+    fn field_match(target: &str, key: &str, exact: bool) -> bool {
+        if exact {
+            // 完全一致
+            target == key
+        } else {
+            // スマートケース部分一致
+            Self::smart_case_match(target, key)
+        }
     }
 
     /// スマートケースマッチ: キーが全て小文字なら case insensitive、大文字を含むなら case sensitive
