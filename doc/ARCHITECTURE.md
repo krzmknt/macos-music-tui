@@ -1,0 +1,366 @@
+# macos-music-tui Architecture Documentation
+
+## Overview
+
+macos-music-tui is a TUI (Terminal User Interface) application for controlling macOS Music.app with keyboard.
+
+## Module Structure
+
+```
+src/
+├── main.rs          # Entry point, event loop
+├── app.rs           # Application state, business logic
+├── ui.rs            # UI rendering (ratatui)
+├── music.rs         # Music.app control (AppleScript)
+├── cache.rs         # Cache management
+└── accessibility.rs # Playback control (Accessibility API + AppleScript)
+```
+
+## Thread Architecture
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                      Main Thread                           │
+│  - Event loop (50ms polling)                               │
+│  - UI rendering                                            │
+│  - User input handling                                     │
+└────────────────────────────────────────────────────────────┘
+              │                              ▲
+              │ Command                      │ Response
+              ▼                              │
+┌────────────────────────────────────────────────────────────┐
+│                 Playback Control Thread                    │
+│  - AppleScript communication with Music.app                │
+│  - Periodic state updates                                  │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│                    Cache Thread                            │
+│  - Background loading of track metadata                    │
+│  - Runs independently without blocking playback            │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│                  Playlist Load Thread                      │
+│  - Loading playlist list and track information             │
+│  - Only loads playlists not yet cached                     │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Inter-thread Communication
+
+- **Command/Response pattern**: Instructions from main thread to worker threads and responses
+- **Channels (mpsc)**: Asynchronous messaging
+
+```rust
+enum Command {
+    RefreshPosition,  // Update playback position
+    RefreshFull,      // Update full state
+}
+
+enum Response {
+    PositionUpdated(f64, bool),           // position, is_playing
+    StateUpdated(TrackInfo, i32, bool, String),  // track, volume, shuffle, repeat
+}
+```
+
+## Playback Control Architecture
+
+### Temporary Playlist Approach
+
+In Music.app, simply executing `play track` activates **AutoPlay** mode, which plays random songs after the album/playlist ends. To avoid this, we use the following approach.
+
+#### Processing Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              User selects track N and plays                 │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  1. Create temporary playlist (___TempQueue___)             │
+│     - Track order: N, N+1, ..., last, 1, 2, ..., N-1        │
+│     - Rotated (circular) order                              │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  2. Ensure Music window exists (process hidden)             │
+│     - set visible to false                                  │
+│     - Window exists but not shown on screen                 │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  3. Select temporary playlist in sidebar                    │
+│     - Manipulate UI elements with System Events             │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  4. Click Play button (Accessibility API)                   │
+│     - Identify Play button with AXUIElement                 │
+│     - Execute AXPress action                                │
+│     - This adds all tracks to the queue                     │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  5. Delete temporary playlist after 500ms                   │
+│     - No longer needed after playback starts                │
+│     - Keeps library clean                                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Why This Approach?
+
+| Approach | Problem |
+|----------|---------|
+| Direct `play track` | AutoPlay activates, random songs after track ends |
+| `reveal` + Play click | Previously selected album plays (selection context issue) |
+| Sidebar selection + Play click | Correctly adds to queue ✓ |
+
+#### Implementation Details
+
+```rust
+// accessibility.rs
+
+const TEMP_PLAYLIST_NAME: &str = "___TempQueue___";
+
+pub fn play_album_with_context(album_name: &str, track_index: usize) -> Result<(), String> {
+    // 1. Create rotated temporary playlist
+    create_rotated_playlist_from_album(album_name, track_index)?;
+
+    // 2. Ensure window exists (hidden)
+    ensure_music_hidden_with_window()?;
+
+    // 3. Select in sidebar
+    select_sidebar_item(TEMP_PLAYLIST_NAME)?;
+
+    // 4. Click Play button
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    click_play_button()?;
+
+    // 5. Delete
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    delete_temp_playlist();
+
+    Ok(())
+}
+```
+
+### Accessibility API Usage
+
+Uses macOS Accessibility API to manipulate UI elements.
+
+```rust
+fn click_play_button() -> Result<(), String> {
+    let pid = get_music_pid()?;
+    let music_app = AXUIElement::application(pid);
+
+    // Get main window
+    let main_window = music_app
+        .attribute(&AXAttribute::new(&CFString::new("AXMainWindow")))?;
+
+    // Search for Play button
+    let play_button = find_element_by_role_and_title(&window, "AXButton", Some("Play"), 0)?;
+
+    // Execute click
+    play_button.perform_action(&CFString::new("AXPress"))
+}
+```
+
+## Cache System
+
+### Purpose
+
+- AppleScript calls to Music.app are slow (can take several seconds)
+- Keep cache in memory for fast search
+- Persist to file for faster startup
+
+### Cache Files
+
+```
+~/Library/Caches/macos-music-tui/
+├── tracks.json      # All track metadata
+└── playlists.json   # Playlist information
+```
+
+### Track Cache Structure
+
+```json
+{
+  "total_tracks": 30968,
+  "loaded_tracks": 30968,
+  "last_updated": 1706612400,
+  "tracks": [
+    {
+      "name": "Yesterday",
+      "artist": "The Beatles",
+      "album": "Help!",
+      "date_added": "Sunday, September 13, 2015 at 3:44:42",
+      "year": 1965,
+      "track_number": 13,
+      "disc_number": 1,
+      "time": "2:05",
+      "played_count": 42,
+      "favorited": true
+    }
+  ]
+}
+```
+
+### Cache Loading Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        On Startup                           │
+├─────────────────────────────────────────────────────────────┤
+│  1. Load cache file                                         │
+│  2. Display Recently Added immediately if data exists       │
+│  3. Start background cache update                           │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  Background Processing                      │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────┐    100ms    ┌─────────┐    100ms    ┌────────┐│
+│  │ Batch 1 │ ──────────▶ │ Batch 2 │ ──────────▶ │ Batch N││
+│  │ 50 trks │             │ 50 trks │             │ rest   ││
+│  └─────────┘             └─────────┘             └────────┘│
+│       │                       │                       │    │
+│       ▼                       ▼                       ▼    │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │              TrackCache (in memory)                 │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                              │                              │
+│                    Save every 100 tracks                    │
+│                              ▼                              │
+│                    ~/Library/Caches/.../tracks.json        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Incremental Update (Upsert)
+
+When cache is complete, only fetches tracks added within 1 day of last update.
+
+```rust
+// If cache is complete, do incremental update
+if cache_is_complete {
+    if let Some(last_updated) = cache_last_updated {
+        // Fetch from 1 day before last_updated
+        let cutoff = last_updated.saturating_sub(86400);
+        let new_tracks = MusicController::get_tracks_added_since(cutoff)?;
+        cache.upsert_tracks(new_tracks);
+    }
+}
+```
+
+### Search
+
+Search is performed on cache, so it's fast.
+
+```rust
+pub fn search(&self, query: &str) -> Vec<&CachedTrack> {
+    let query_lower = query.to_lowercase();
+    let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+
+    self.tracks
+        .iter()
+        .filter(|track| {
+            // Check if all words are in search_key
+            query_words.iter().all(|word| track.search_key.contains(word))
+        })
+        .collect()
+}
+```
+
+- Search starts at 3+ characters
+- Space-separated AND search
+- Case insensitive
+
+## UI Structure
+
+### Layout
+
+```
+┌────────────────────────────────────────────────────────────┐
+│ Header: Now Playing, Progress Bar, Controls                │
+├────────────────────┬───────────────────────────────────────┤
+│ Recently Added     │                                       │
+│ (left column top)  │        Content                        │
+├────────────────────┤        (track list / search results)  │
+│ Playlists          │                                       │
+│ (left column bot)  │                                       │
+├────────────────────┴───────────────────────────────────────┤
+│ Footer: Key bindings help                                  │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Focus Management
+
+```rust
+pub enum Focus {
+    RecentlyAdded,  // Left column top
+    Playlists,      // Left column bottom
+    Content,        // Right main area
+    Search,         // Search mode
+}
+```
+
+Tab key cycles focus: RecentlyAdded → Playlists → Content → RecentlyAdded
+
+### Scrolling
+
+Each pane scrolls independently.
+
+```rust
+pub struct App {
+    // Recently Added
+    pub recently_added_selected: usize,
+    pub recently_added_scroll: usize,
+
+    // Playlists
+    pub playlists_selected: usize,
+    pub playlists_scroll: usize,
+
+    // Content
+    pub content_selected: usize,
+    pub content_scroll: usize,
+}
+```
+
+## Key Bindings
+
+| Key | Function |
+|-----|----------|
+| `Space` | Play/Pause |
+| `n` | Next track |
+| `p` | Previous track |
+| `←` `→` | Seek 10 seconds |
+| `s` | Toggle shuffle |
+| `r` | Cycle repeat mode |
+| `j` `k` / `↑` `↓` | Navigate list |
+| `Tab` | Switch focus |
+| `Enter` | Play / Show details |
+| `/` | Start search mode |
+| `Esc` | Cancel search |
+| `q` | Quit |
+
+## Dependencies
+
+```toml
+[dependencies]
+anyhow = "1.0"          # Error handling
+crossterm = "0.29.0"    # Terminal control
+ratatui = "0.29.0"      # TUI framework
+rand = "0.8"            # Level meter animation
+serde = "1.0"           # Serialization
+serde_json = "1.0"      # JSON cache
+dirs = "5.0"            # Cache directory
+unicode-width = "0.1"   # Character width calculation
+accessibility = "0.2.0" # macOS Accessibility API
+core-foundation = "0.10.1" # macOS Core Foundation
+```
