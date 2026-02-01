@@ -182,7 +182,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                             KeyCode::Char('G') => {
                                 app.content_bottom();
                             }
-                            KeyCode::Char('h') => {
+                            KeyCode::Char('h') | KeyCode::Char('/') => {
                                 // Searchカードに戻る
                                 app.focus = Focus::Search;
                             }
