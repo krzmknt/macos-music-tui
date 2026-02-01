@@ -985,8 +985,9 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
         // 間隔: # - Name - Artist - Album - Year - Time - Plays (6つの間隔)
         let fixed_cols = col_track + col_year + col_time + col_plays + (col_gap * 6);
         let flex_total = available.saturating_sub(fixed_cols);
-        let col_name = flex_total * 35 / 100;
-        let col_artist = flex_total * 30 / 100;
+        // Name が最も広く、Artist と Album は同じ幅
+        let col_name = flex_total * 40 / 100;
+        let col_artist = (flex_total.saturating_sub(col_name)) / 2;
         let col_album = flex_total.saturating_sub(col_name + col_artist);
 
         // ヘッダー行
