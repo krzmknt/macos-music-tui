@@ -54,6 +54,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         app.poll_responses();
         app.poll_cache_responses();
         app.poll_playlist_responses();
+        app.poll_playlist_refresh();
         app.update_level_meter();
         app.update_spinner();
         app.update_visible_heights(terminal.size()?.height);
@@ -79,11 +80,68 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                     }
                 }
                 Event::Key(key) => {
-                if !app.search_mode {
+                if !app.search_mode && !app.add_to_playlist_mode && !app.delete_confirm_mode {
                     app.message = None;
                 }
 
-                if app.search_mode {
+                if app.delete_confirm_mode {
+                    // 削除確認モード
+                    match key.code {
+                        KeyCode::Char('y') | KeyCode::Char('Y') => {
+                            app.confirm_delete();
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                            app.cancel_delete();
+                        }
+                        _ => {}
+                    }
+                } else if app.new_playlist_input_mode {
+                    // 新規プレイリスト名入力モード
+                    match key.code {
+                        KeyCode::Esc => {
+                            app.cancel_add_to_playlist();
+                        }
+                        KeyCode::Enter => {
+                            app.confirm_new_playlist();
+                        }
+                        KeyCode::Backspace => {
+                            app.new_playlist_backspace();
+                        }
+                        KeyCode::Char(c) => {
+                            app.new_playlist_input(c);
+                        }
+                        _ => {}
+                    }
+                } else if app.add_to_playlist_mode {
+                    // プレイリスト追加モード
+                    match key.code {
+                        KeyCode::Esc => {
+                            app.cancel_add_to_playlist();
+                        }
+                        KeyCode::Enter => {
+                            app.confirm_add_to_playlist();
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            // プレイリスト選択（+ New playlist を含む）
+                            if app.playlists_selected > 0 {
+                                app.playlists_selected -= 1;
+                                if app.playlists_selected < app.playlists_scroll {
+                                    app.playlists_scroll = app.playlists_selected;
+                                }
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            let max_index = app.playlists_count_with_new() - 1;
+                            if app.playlists_selected < max_index {
+                                app.playlists_selected += 1;
+                                if app.playlists_selected >= app.playlists_scroll + app.playlists_visible {
+                                    app.playlists_scroll = app.playlists_selected.saturating_sub(app.playlists_visible - 1);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                } else if app.search_mode {
                     // 検索モード中のフォーカスによって動作を分岐
                     if app.focus == Focus::Content {
                         // 検索結果にフォーカス中: j/k/h でナビゲーション
@@ -111,6 +169,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                                     app.show_album_tracks(&album_name);
                                     app.search_mode = false;
                                 }
+                            }
+                            KeyCode::Char('a') => {
+                                app.start_add_to_playlist();
                             }
                             _ => {}
                         }
@@ -194,6 +255,18 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                         }
                         KeyCode::Char('l') => {
                             app.focus_right();
+                        }
+                        KeyCode::Char('a') => {
+                            app.start_add_to_playlist();
+                        }
+                        KeyCode::Char('d') => {
+                            // Playlistsカードでd: プレイリスト削除
+                            // プレイリスト詳細でd: 曲を削除
+                            if app.focus == Focus::Playlists {
+                                app.start_delete_playlist();
+                            } else if app.focus == Focus::Content && app.is_playlist_detail {
+                                app.start_delete_track_from_playlist();
+                            }
                         }
                         KeyCode::Enter => {
                             match app.focus {

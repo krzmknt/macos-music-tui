@@ -54,6 +54,12 @@ pub enum DragTarget {
     CardDivider,        // Recently AddedとPlaylistsの境界
 }
 
+#[derive(Debug, Clone)]
+pub enum DeleteTarget {
+    Playlist { name: String },
+    TrackFromPlaylist { playlist_name: String, track_name: String, track_index: usize },
+}
+
 
 pub struct App {
     pub track: TrackInfo,
@@ -94,6 +100,17 @@ pub struct App {
     pub search_query: String,
     pub search_results: Vec<ListItem>,
 
+    // プレイリスト追加モード
+    pub add_to_playlist_mode: bool,
+    pub track_to_add: Option<ListItem>,
+    pub new_playlist_input_mode: bool,
+    pub new_playlist_name: String,
+    pub playlist_refreshing: Option<String>,  // 更新中のプレイリスト名
+
+    // 削除確認モード
+    pub delete_confirm_mode: bool,
+    pub delete_confirm_target: Option<DeleteTarget>,
+
     position_pending: bool,
     full_pending: bool,
     pub spinner_frame: usize,
@@ -111,6 +128,9 @@ pub struct App {
     pub playlist_loading: bool,
     pub playlist_loading_progress: String,
     playlist_load_rx: Receiver<PlaylistLoadResponse>,
+
+    // プレイリスト更新用
+    playlist_refresh_rx: Option<Receiver<(String, Vec<ListItem>)>>,
 }
 
 impl App {
@@ -379,6 +399,13 @@ impl App {
             search_mode: false,
             search_query: String::new(),
             search_results: Vec::new(),
+            add_to_playlist_mode: false,
+            track_to_add: None,
+            new_playlist_input_mode: false,
+            new_playlist_name: String::new(),
+            playlist_refreshing: None,
+            delete_confirm_mode: false,
+            delete_confirm_target: None,
             position_pending: false,
             full_pending: false,
             spinner_frame: 0,
@@ -392,6 +419,7 @@ impl App {
             playlist_loading: true,
             playlist_loading_progress: String::new(),
             playlist_load_rx,
+            playlist_refresh_rx: None,
         }
     }
 
@@ -986,37 +1014,8 @@ impl App {
         }
         
         self.message = Some(format!("Refreshing {}...", playlist_name));
-        self.content_loading = true;
-        
-        match MusicController::get_playlist_tracks(&playlist_name) {
-            Ok(tracks) => {
-                // キャッシュを更新
-                let cached_tracks: Vec<CachedPlaylistTrack> = tracks.iter().map(|t| {
-                    CachedPlaylistTrack {
-                        name: t.name.clone(),
-                        artist: t.artist.clone(),
-                        album: t.album.clone(),
-                        year: t.year,
-                        time: t.time.clone(),
-                        played_count: t.played_count,
-                        favorited: t.favorited,
-                    }
-                }).collect();
-                let cached_playlist = CachedPlaylist {
-                    name: playlist_name.clone(),
-                    tracks: cached_tracks,
-                };
-                self.playlist_cache.insert(cached_playlist);
-                let _ = self.playlist_cache.save();
-                
-                self.content_items = tracks;
-                self.message = Some(format!("Refreshed {}", playlist_name));
-            }
-            Err(e) => {
-                self.message = Some(format!("Refresh failed: {}", e));
-            }
-        }
-        self.content_loading = false;
+        // 非同期でリフレッシュ（スピナー表示）
+        self.refresh_playlist_cache(&playlist_name);
     }
 
     fn adjust_recently_added_scroll(&mut self) {
@@ -1203,6 +1202,396 @@ impl App {
             self.focus = Focus::Content;
             self.content_selected = 0;
             self.content_scroll = 0;
+        }
+    }
+
+
+    // ========== プレイリスト追加モード ==========
+
+    /// プレイリスト追加モードを開始
+    pub fn start_add_to_playlist(&mut self) {
+        // Content にフォーカスがあり、曲が選択されている場合のみ
+        if self.focus != Focus::Content {
+            return;
+        }
+        
+        let items = if self.search_mode { &self.search_results } else { &self.content_items };
+        if let Some(item) = items.get(self.content_selected) {
+            self.track_to_add = Some(item.clone());
+            self.add_to_playlist_mode = true;
+            self.focus = Focus::Playlists;
+            self.playlists_selected = 0;
+            self.playlists_scroll = 0;
+        }
+    }
+
+    /// プレイリスト追加モードをキャンセル
+    pub fn cancel_add_to_playlist(&mut self) {
+        self.add_to_playlist_mode = false;
+        self.track_to_add = None;
+        self.new_playlist_input_mode = false;
+        self.new_playlist_name.clear();
+        self.focus = Focus::Content;
+    }
+
+    /// 選択したプレイリストに曲を追加
+    pub fn confirm_add_to_playlist(&mut self) {
+        // "+ New playlist" が選択された場合
+        if self.playlists_selected >= self.playlists.len() {
+            self.new_playlist_input_mode = true;
+            return;
+        }
+
+        let Some(track) = &self.track_to_add else {
+            self.cancel_add_to_playlist();
+            return;
+        };
+
+        let Some(playlist) = self.playlists.get(self.playlists_selected) else {
+            self.cancel_add_to_playlist();
+            return;
+        };
+
+        let playlist_name = playlist.name.clone();
+        let track_name = track.name.clone();
+        let track_album = track.album.clone();
+
+        // AppleScriptでプレイリストに曲を追加
+        match Self::add_track_to_playlist(&track_name, &track_album, &playlist_name) {
+            Ok(_) => {
+                self.message = Some(format!("Added to '{}'", playlist_name));
+                // プレイリストキャッシュを更新
+                self.refresh_playlist_cache(&playlist_name);
+            }
+            Err(e) => {
+                self.message = Some(format!("Error: {}", e));
+            }
+        }
+
+        self.add_to_playlist_mode = false;
+        self.track_to_add = None;
+        self.focus = Focus::Content;
+    }
+
+    /// 新規プレイリスト名の入力
+    pub fn new_playlist_input(&mut self, c: char) {
+        self.new_playlist_name.push(c);
+    }
+
+    /// 新規プレイリスト名のバックスペース
+    pub fn new_playlist_backspace(&mut self) {
+        self.new_playlist_name.pop();
+    }
+
+    /// 新規プレイリストを作成して曲を追加
+    pub fn confirm_new_playlist(&mut self) {
+        if self.new_playlist_name.is_empty() {
+            return;
+        }
+
+        let Some(track) = &self.track_to_add else {
+            self.cancel_add_to_playlist();
+            return;
+        };
+
+        let playlist_name = self.new_playlist_name.clone();
+        let track_name = track.name.clone();
+        let track_album = track.album.clone();
+
+        // AppleScriptで新規プレイリストを作成して曲を追加
+        match Self::create_playlist_and_add_track(&playlist_name, &track_name, &track_album) {
+            Ok(_) => {
+                self.message = Some(format!("Created '{}' and added track", playlist_name));
+                // プレイリスト一覧に追加
+                self.playlists.push(ListItem {
+                    name: playlist_name.clone(),
+                    artist: String::new(),
+                    album: String::new(),
+                    time: String::new(),
+                    year: 0,
+                    track_number: 0,
+                    played_count: 0,
+                    favorited: false,
+                });
+                // プレイリストキャッシュを更新
+                self.refresh_playlist_cache(&playlist_name);
+            }
+            Err(e) => {
+                self.message = Some(format!("Error: {}", e));
+            }
+        }
+
+        self.add_to_playlist_mode = false;
+        self.track_to_add = None;
+        self.new_playlist_input_mode = false;
+        self.new_playlist_name.clear();
+        self.focus = Focus::Content;
+    }
+
+    /// AppleScript: プレイリストに曲を追加
+    fn add_track_to_playlist(track_name: &str, track_album: &str, playlist_name: &str) -> Result<(), String> {
+        let script = format!(
+            r#"tell application "Music"
+                set targetTrack to (first track of library playlist 1 whose name is "{}" and album is "{}")
+                set targetPlaylist to (first playlist whose name is "{}")
+                duplicate targetTrack to targetPlaylist
+            end tell"#,
+            track_name.replace('"', "\\\""),
+            track_album.replace('"', "\\\""),
+            playlist_name.replace('"', "\\\"")
+        );
+
+        let output = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+            .map_err(|e| format!("Failed to run osascript: {}", e))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            Err(err.trim().to_string())
+        }
+    }
+
+    /// AppleScript: 新規プレイリストを作成して曲を追加
+    fn create_playlist_and_add_track(playlist_name: &str, track_name: &str, track_album: &str) -> Result<(), String> {
+        let script = format!(
+            r#"tell application "Music"
+                set newPlaylist to make new playlist with properties {{name:"{}"}}
+                set targetTrack to (first track of library playlist 1 whose name is "{}" and album is "{}")
+                duplicate targetTrack to newPlaylist
+            end tell"#,
+            playlist_name.replace('"', "\\\""),
+            track_name.replace('"', "\\\""),
+            track_album.replace('"', "\\\"")
+        );
+
+        let output = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+            .map_err(|e| format!("Failed to run osascript: {}", e))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            Err(err.trim().to_string())
+        }
+    }
+
+    /// プレイリスト追加モード用のプレイリスト数（+ New playlist を含む）
+    pub fn playlists_count_with_new(&self) -> usize {
+        self.playlists.len() + 1
+    }
+
+
+    /// 指定したプレイリストのキャッシュを非同期で更新
+    fn refresh_playlist_cache(&mut self, playlist_name: &str) {
+        let name = playlist_name.to_string();
+        self.playlist_refreshing = Some(name.clone());
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.playlist_refresh_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            if let Ok(tracks) = MusicController::get_playlist_tracks(&name) {
+                let _ = tx.send((name, tracks));
+            }
+        });
+    }
+
+
+    /// プレイリスト更新の完了をポーリング
+    pub fn poll_playlist_refresh(&mut self) {
+        if let Some(rx) = &self.playlist_refresh_rx {
+            if let Ok((playlist_name, tracks)) = rx.try_recv() {
+                // キャッシュを更新
+                let cached_tracks: Vec<CachedPlaylistTrack> = tracks.iter().map(|t| {
+                    CachedPlaylistTrack {
+                        name: t.name.clone(),
+                        artist: t.artist.clone(),
+                        album: t.album.clone(),
+                        year: t.year,
+                        time: t.time.clone(),
+                        played_count: t.played_count,
+                        favorited: t.favorited,
+                    }
+                }).collect();
+                let cached_playlist = CachedPlaylist {
+                    name: playlist_name.clone(),
+                    tracks: cached_tracks,
+                };
+                self.playlist_cache.insert(cached_playlist);
+                let _ = self.playlist_cache.save();
+
+                // 現在表示中のプレイリストなら content_items も更新
+                if self.is_playlist_detail && self.content_source_name == playlist_name {
+                    self.content_items = tracks;
+                }
+
+                self.playlist_refreshing = None;
+                self.playlist_refresh_rx = None;
+            }
+        }
+    }
+
+
+    // ========== 削除機能 ==========
+
+    /// 削除確認モードを開始（プレイリスト削除）
+    pub fn start_delete_playlist(&mut self) {
+        if self.focus != Focus::Playlists || self.playlists.is_empty() {
+            return;
+        }
+
+        if let Some(playlist) = self.playlists.get(self.playlists_selected) {
+            self.delete_confirm_target = Some(DeleteTarget::Playlist {
+                name: playlist.name.clone(),
+            });
+            self.delete_confirm_mode = true;
+        }
+    }
+
+    /// 削除確認モードを開始（プレイリストから曲を削除）
+    pub fn start_delete_track_from_playlist(&mut self) {
+        if self.focus != Focus::Content || !self.is_playlist_detail {
+            return;
+        }
+
+        if let Some(track) = self.content_items.get(self.content_selected) {
+            self.delete_confirm_target = Some(DeleteTarget::TrackFromPlaylist {
+                playlist_name: self.content_source_name.clone(),
+                track_name: track.name.clone(),
+                track_index: self.content_selected,
+            });
+            self.delete_confirm_mode = true;
+        }
+    }
+
+    /// 削除確認モードをキャンセル
+    pub fn cancel_delete(&mut self) {
+        self.delete_confirm_mode = false;
+        self.delete_confirm_target = None;
+    }
+
+    /// 削除を実行
+    pub fn confirm_delete(&mut self) {
+        let Some(target) = self.delete_confirm_target.take() else {
+            self.cancel_delete();
+            return;
+        };
+
+        match target {
+            DeleteTarget::Playlist { name } => {
+                match Self::delete_playlist_applescript(&name) {
+                    Ok(_) => {
+                        // UIから削除
+                        self.playlists.retain(|p| p.name != name);
+                        // キャッシュから削除
+                        self.playlist_cache.remove(&name);
+                        let _ = self.playlist_cache.save();
+                        // 選択位置を調整
+                        if self.playlists_selected >= self.playlists.len() && !self.playlists.is_empty() {
+                            self.playlists_selected = self.playlists.len() - 1;
+                        }
+                        // 詳細画面をクリア
+                        if self.content_source_name == name {
+                            self.content_items.clear();
+                            self.content_title.clear();
+                            self.content_source_name.clear();
+                        }
+                        self.message = Some(format!("Deleted playlist '{}'", name));
+                    }
+                    Err(e) => {
+                        self.message = Some(format!("Error: {}", e));
+                    }
+                }
+            }
+            DeleteTarget::TrackFromPlaylist { playlist_name, track_name, track_index } => {
+                match Self::delete_track_from_playlist_applescript(&playlist_name, track_index + 1) {
+                    Ok(_) => {
+                        // UIから削除
+                        if track_index < self.content_items.len() {
+                            self.content_items.remove(track_index);
+                        }
+                        // 選択位置を調整
+                        if self.content_selected >= self.content_items.len() && !self.content_items.is_empty() {
+                            self.content_selected = self.content_items.len() - 1;
+                        }
+                        // キャッシュを更新
+                        self.refresh_playlist_cache(&playlist_name);
+                        self.message = Some(format!("Removed '{}' from playlist", track_name));
+                    }
+                    Err(e) => {
+                        self.message = Some(format!("Error: {}", e));
+                    }
+                }
+            }
+        }
+
+        self.delete_confirm_mode = false;
+    }
+
+    /// 削除確認メッセージを取得
+    pub fn get_delete_confirm_message(&self) -> Option<String> {
+        self.delete_confirm_target.as_ref().map(|target| match target {
+            DeleteTarget::Playlist { name } => {
+                format!("Delete playlist '{}'? (y/n)", name)
+            }
+            DeleteTarget::TrackFromPlaylist { track_name, .. } => {
+                format!("Remove '{}' from playlist? (y/n)", track_name)
+            }
+        })
+    }
+
+    /// AppleScript: プレイリストを削除
+    fn delete_playlist_applescript(playlist_name: &str) -> Result<(), String> {
+        let script = format!(
+            r#"tell application "Music"
+                delete (first playlist whose name is "{}")
+            end tell"#,
+            playlist_name.replace('"', "\\\"")
+        );
+
+        let output = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+            .map_err(|e| format!("Failed to run osascript: {}", e))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            Err(err.trim().to_string())
+        }
+    }
+
+    /// AppleScript: プレイリストから曲を削除（インデックス指定、1-based）
+    fn delete_track_from_playlist_applescript(playlist_name: &str, track_index: usize) -> Result<(), String> {
+        let script = format!(
+            r#"tell application "Music"
+                set targetPlaylist to (first playlist whose name is "{}")
+                delete track {} of targetPlaylist
+            end tell"#,
+            playlist_name.replace('"', "\\\""),
+            track_index
+        );
+
+        let output = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+            .map_err(|e| format!("Failed to run osascript: {}", e))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            Err(err.trim().to_string())
         }
     }
 }

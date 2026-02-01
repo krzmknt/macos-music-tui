@@ -389,38 +389,91 @@ fn draw_playlists(frame: &mut Frame, app: &App, area: Rect) {
 
     let inner = inner_area(area, 2, 1);
 
-    let title_area = Rect { height: 1, ..inner };
-    let playlist_count = app.playlists.len();
-    let title = Paragraph::new(Line::from(vec![
-        Span::styled("Playlists", Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" ({})", playlist_count), Style::default().fg(TEXT_DIM)),
-    ]));
-    frame.render_widget(title, title_area);
+    // スピナーフレーム
+    let spinner_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    let spinner_char = spinner_frames[app.spinner_frame];
 
-    if app.playlists.is_empty() {
+    // タイトル
+    let title_area = Rect { height: 1, ..inner };
+    if app.new_playlist_input_mode {
+        // 新規プレイリスト名入力モード
+        let input_display = format!("New: {}_", app.new_playlist_name);
+        let title = Paragraph::new(Line::from(vec![
+            Span::styled(input_display, Style::default().fg(ACCENT_CYAN)),
+        ]));
+        frame.render_widget(title, title_area);
+    } else if app.add_to_playlist_mode {
+        // プレイリスト追加モード
+        let title = Paragraph::new(Line::from(vec![
+            Span::styled("Add to which playlist?", Style::default().fg(ACCENT_CYAN).add_modifier(Modifier::BOLD)),
+        ]));
+        frame.render_widget(title, title_area);
+    } else {
+        // 通常モード
+        let playlist_count = app.playlists.len();
+        let title = Paragraph::new(Line::from(vec![
+            Span::styled("Playlists", Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" ({})", playlist_count), Style::default().fg(TEXT_DIM)),
+        ]));
+        frame.render_widget(title, title_area);
+    }
+
+    if app.playlists.is_empty() && !app.add_to_playlist_mode {
         let empty_area = Rect { y: inner.y + 1, height: 1, ..inner };
         let empty = Paragraph::new(Span::styled("Loading...", Style::default().fg(TEXT_DIM)));
         frame.render_widget(empty, empty_area);
     } else {
         let visible_height = (inner.height.saturating_sub(1)) as usize; // -1 for title
-        for (idx, item) in app.playlists.iter().enumerate().skip(app.playlists_scroll).take(visible_height) {
+        
+        // プレイリスト追加モード時は "+ New playlist" を含めた総数
+        let total_items = if app.add_to_playlist_mode {
+            app.playlists_count_with_new()
+        } else {
+            app.playlists.len()
+        };
+
+        for idx in app.playlists_scroll..(app.playlists_scroll + visible_height).min(total_items) {
             let y = inner.y + 1 + (idx - app.playlists_scroll) as u16;
             if y >= inner.y + inner.height {
                 break;
             }
             let line_area = Rect { x: inner.x, y, width: inner.width, height: 1 };
             let is_selected = idx == app.playlists_selected;
-            let style = if is_selected && is_focused {
-                Style::default().fg(ACCENT_CYAN)
-            } else {
-                Style::default().fg(TEXT_SECONDARY)
-            };
-            let prefix = if is_selected && is_focused { ">" } else { " " };
-            let line = Paragraph::new(Line::from(vec![
-                Span::styled(prefix, Style::default().fg(ACCENT_CYAN)),
-                Span::styled(&item.name, style),
-            ]));
-            frame.render_widget(line, line_area);
+
+            if idx < app.playlists.len() {
+                // 通常のプレイリスト
+                let item = &app.playlists[idx];
+                let is_refreshing = app.playlist_refreshing.as_ref() == Some(&item.name);
+                let style = if is_selected && is_focused {
+                    Style::default().fg(ACCENT_CYAN)
+                } else {
+                    Style::default().fg(TEXT_SECONDARY)
+                };
+                let prefix = if is_selected && is_focused { ">" } else { " " };
+                
+                let mut spans = vec![
+                    Span::styled(prefix, Style::default().fg(ACCENT_CYAN)),
+                    Span::styled(&item.name, style),
+                ];
+                if is_refreshing {
+                    spans.push(Span::styled(format!(" {}", spinner_char), Style::default().fg(ACCENT_CYAN)));
+                }
+                let line = Paragraph::new(Line::from(spans));
+                frame.render_widget(line, line_area);
+            } else if app.add_to_playlist_mode {
+                // "+ New playlist" 項目
+                let style = if is_selected && is_focused {
+                    Style::default().fg(ACCENT_GREEN)
+                } else {
+                    Style::default().fg(ACCENT_GREEN).add_modifier(Modifier::DIM)
+                };
+                let prefix = if is_selected && is_focused { ">" } else { " " };
+                let line = Paragraph::new(Line::from(vec![
+                    Span::styled(prefix, Style::default().fg(ACCENT_CYAN)),
+                    Span::styled("+ New playlist", style),
+                ]));
+                frame.render_widget(line, line_area);
+            }
         }
     }
 }
@@ -836,8 +889,33 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     let key_style = Style::default().fg(ACCENT_CYAN);
     let sep_style = Style::default().fg(TEXT_DIM);
+    let warn_style = Style::default().fg(Color::Rgb(255, 100, 100));
 
-    let commands: Vec<(&str, &str)> = if app.search_mode {
+    // 削除確認モードの場合は確認メッセージを表示
+    if app.delete_confirm_mode {
+        if let Some(msg) = app.get_delete_confirm_message() {
+            let paragraph = Paragraph::new(Line::from(vec![
+                Span::styled(msg, warn_style),
+            ]));
+            frame.render_widget(paragraph, area);
+            return;
+        }
+    }
+
+    let commands: Vec<(&str, &str)> = if app.new_playlist_input_mode {
+        // 新規プレイリスト名入力モード
+        vec![
+            ("Return", "create"),
+            ("Esc", "cancel"),
+        ]
+    } else if app.add_to_playlist_mode {
+        // プレイリスト追加モード
+        vec![
+            ("Return", "add"),
+            ("j/k", "nav"),
+            ("Esc", "cancel"),
+        ]
+    } else if app.search_mode {
         if app.focus == Focus::Content {
             // 検索結果にフォーカス中
             vec![
@@ -845,6 +923,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
                 ("j/k", "nav"),
                 ("h", "back"),
                 ("l", "album"),
+                ("a", "add"),
                 ("Esc", "cancel"),
             ]
         } else {
@@ -859,11 +938,36 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         vec![
             ("Space", "play/pause"),
             ("Return", "play"),
-            ("n/p", "track"),
-            ("←→", "seek"),
             ("j/k", "nav"),
             ("h", "back"),
             ("l", "album"),
+            ("a", "add"),
+            ("d", "remove"),
+            ("/", "search"),
+            ("q", "quit"),
+        ]
+    } else if app.focus == Focus::Content {
+        // アルバム詳細にフォーカス中
+        vec![
+            ("Space", "play/pause"),
+            ("Return", "play"),
+            ("n/p", "track"),
+            ("←→", "seek"),
+            ("j/k", "nav"),
+            ("h/l", "column"),
+            ("a", "add"),
+            ("/", "search"),
+            ("q", "quit"),
+        ]
+    } else if app.focus == Focus::Playlists {
+        // Playlistsカードにフォーカス中
+        vec![
+            ("Space", "play/pause"),
+            ("Return", "select"),
+            ("j/k", "nav"),
+            ("h/l", "column"),
+            ("d", "delete"),
+            ("Tab", "pane"),
             ("/", "search"),
             ("q", "quit"),
         ]
