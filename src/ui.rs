@@ -1148,6 +1148,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
                 ("j/k/g/G", "nav"),
                 ("h", "back"),
                 ("l", "album"),
+                ("s", "sort"),
                 ("a", "add"),
                 ("Esc", "cancel"),
             ]
