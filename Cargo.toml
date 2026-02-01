@@ -2,6 +2,15 @@
 name = "macos-music-tui"
 version = "0.1.0"
 edition = "2021"
+description = "TUI for controlling macOS Music.app with keyboard"
+license = "MIT"
+repository = "https://github.com/krzmknt/macos-music-tui"
+keywords = ["music", "macos", "tui", "apple-music"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "mmt"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.100"
