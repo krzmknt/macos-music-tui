@@ -24,7 +24,7 @@ fn main() -> Result<()> {
     // Handle --version flag
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 && (args[1] == "--version" || args[1] == "-V") {
-        println!("mmt v{}, {}, commit {}", env!("CARGO_PKG_VERSION"), BUILD_DATE, GIT_COMMIT);
+        println!("mmt v{} {} commit:{}", env!("CARGO_PKG_VERSION"), BUILD_DATE, GIT_COMMIT);
         return Ok(());
     }
 
