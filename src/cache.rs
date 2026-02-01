@@ -70,6 +70,8 @@ pub struct TrackCache {
     pub tracks: Vec<CachedTrack>,
     #[serde(skip)]
     search_keys_initialized: bool,
+    #[serde(skip)]
+    pub is_fresh_build: bool,  // true if no prior cache existed
 }
 
 impl TrackCache {
@@ -79,18 +81,18 @@ impl TrackCache {
 
     pub fn load() -> Self {
         let Some(path) = Self::cache_path() else {
-            return Self::default();
+            return Self { is_fresh_build: true, ..Self::default() };
         };
 
         if !path.exists() {
-            return Self::default();
+            return Self { is_fresh_build: true, ..Self::default() };
         }
 
         match fs::read_to_string(&path) {
             Ok(content) => {
                 serde_json::from_str::<TrackCache>(&content).unwrap_or_default()
             }
-            Err(_) => Self::default(),
+            Err(_) => Self { is_fresh_build: true, ..Self::default() },
         }
     }
 

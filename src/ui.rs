@@ -28,6 +28,12 @@ fn border_focus_color(app: &App) -> Color {
 }
 
 pub fn draw(frame: &mut Frame, app: &App) {
+    // 初回起動時（キャッシュなし）はウェルカム画面を表示
+    if app.should_show_welcome() {
+        draw_welcome(frame, app);
+        return;
+    }
+
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
@@ -51,6 +57,91 @@ pub fn draw(frame: &mut Frame, app: &App) {
     draw_left_column(frame, app, body_chunks[0]);
     draw_content(frame, app, body_chunks[1]);
     draw_footer(frame, app, main_chunks[2]);
+}
+
+fn draw_welcome(frame: &mut Frame, app: &App) {
+    let area = frame.area();
+
+    // カードサイズ
+    let card_width = 50u16;
+    let card_height = 12u16;
+
+    // 中央に配置
+    let card_x = area.x + (area.width.saturating_sub(card_width)) / 2;
+    let card_y = area.y + (area.height.saturating_sub(card_height)) / 2;
+
+    let card_area = Rect {
+        x: card_x,
+        y: card_y,
+        width: card_width.min(area.width),
+        height: card_height.min(area.height),
+    };
+
+    // カード背景
+    let card = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(accent_color(app)))
+        .title(" Welcome ")
+        .title_style(Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD));
+    frame.render_widget(card, card_area);
+
+    let inner = inner_area(card_area, 2, 1);
+
+    // タイトル
+    let title = Paragraph::new("macos-music-tui")
+        .style(Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD))
+        .alignment(ratatui::layout::Alignment::Center);
+    let title_area = Rect { height: 1, ..inner };
+    frame.render_widget(title, title_area);
+
+    // スピナーと進捗
+    let spinner_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    let spinner_char = spinner_frames[app.spinner_frame];
+    let total_str = if app.cache.total_tracks > 0 {
+        app.cache.total_tracks.to_string()
+    } else {
+        "?".to_string()
+    };
+    let progress_text = format!(
+        "{} Building cache: {}/{}",
+        spinner_char,
+        app.cache.loaded_tracks,
+        total_str
+    );
+    let progress = Paragraph::new(progress_text)
+        .style(Style::default().fg(accent_color(app)))
+        .alignment(ratatui::layout::Alignment::Center);
+    let progress_area = Rect { y: inner.y + 2, height: 1, ..inner };
+    frame.render_widget(progress, progress_area);
+
+    // 注意書き1
+    let notice1 = Paragraph::new("Keep this window open while caching")
+        .style(Style::default().fg(Color::Rgb(255, 200, 100)))
+        .alignment(ratatui::layout::Alignment::Center);
+    let notice1_area = Rect { y: inner.y + 4, height: 1, ..inner };
+    frame.render_widget(notice1, notice1_area);
+
+    // 注意書き2
+    let notice2 = Paragraph::new("Progress is saved if you close")
+        .style(Style::default().fg(TEXT_DIM))
+        .alignment(ratatui::layout::Alignment::Center);
+    let notice2_area = Rect { y: inner.y + 5, height: 1, ..inner };
+    frame.render_widget(notice2, notice2_area);
+
+    // カラー変更の案内
+    let color_hint = Paragraph::new("Press 'c' to change highlight color")
+        .style(Style::default().fg(accent_color(app)))
+        .alignment(ratatui::layout::Alignment::Center);
+    let color_hint_area = Rect { y: inner.y + 7, height: 1, ..inner };
+    frame.render_widget(color_hint, color_hint_area);
+
+    // フッター
+    let footer = Paragraph::new("Press any key to continue")
+        .style(Style::default().fg(TEXT_DIM))
+        .alignment(ratatui::layout::Alignment::Center);
+    let footer_area = Rect { y: inner.y + 9, height: 1, ..inner };
+    frame.render_widget(footer, footer_area);
 }
 
 fn draw_header(frame: &mut Frame, app: &App, area: Rect) {

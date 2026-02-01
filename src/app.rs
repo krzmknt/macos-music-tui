@@ -181,6 +181,9 @@ pub struct App {
 
     // ハイライトカラー
     pub highlight_color: HighlightColor,
+
+    // ウェルカム画面を閉じたかどうか
+    pub welcome_dismissed: bool,
 }
 
 impl App {
@@ -476,6 +479,7 @@ impl App {
             playlist_load_rx,
             playlist_refresh_rx: None,
             highlight_color: settings.highlight_color,
+            welcome_dismissed: false,
         }
     }
 
@@ -706,6 +710,14 @@ impl App {
                 self.message = Some(format!("Error: {}", e));
             }
         }
+    }
+
+    pub fn should_show_welcome(&self) -> bool {
+        !self.welcome_dismissed && self.cache.is_fresh_build && !self.cache.is_complete()
+    }
+
+    pub fn dismiss_welcome(&mut self) {
+        self.welcome_dismissed = true;
     }
 
     pub fn cycle_highlight_color(&mut self) {

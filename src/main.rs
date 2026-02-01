@@ -80,6 +80,19 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                     }
                 }
                 Event::Key(key) => {
+                // ウェルカム画面表示中
+                if app.should_show_welcome() {
+                    match key.code {
+                        KeyCode::Char('c') => {
+                            app.cycle_highlight_color();
+                        }
+                        _ => {
+                            app.dismiss_welcome();
+                        }
+                    }
+                    continue;
+                }
+
                 if !app.search_mode && !app.add_to_playlist_mode && !app.delete_confirm_mode {
                     app.message = None;
                 }
