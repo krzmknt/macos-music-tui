@@ -2,13 +2,7 @@
 
 A TUI (Terminal User Interface) application for controlling macOS Music.app with keyboard.
 
-```bash
-brew install krzmknt/tap/mmt
-```
-
 > **Tested with**: Music.app Version 1.6.0.151 (macOS Sequoia, 2025-02-01)
-
-## Demo
 
 https://github.com/user-attachments/assets/408ac5d1-c1cc-44a8-bde3-7f9706c9c211
 
@@ -17,9 +11,7 @@ https://github.com/user-attachments/assets/408ac5d1-c1cc-44a8-bde3-7f9706c9c211
 - Basic keyboard control of Music.app
 - Fast search with background caching
 - Resumable cache (continues from where it left off on next launch)
-- Playlist management (add tracks, create/delete playlists)
-- Customizable highlight color (10 color options, persisted)
-- IME support for Japanese input in search
+- Playlist management (add tracks, create playlists)
 
 ## Installation
 
@@ -79,6 +71,8 @@ mmt
 | `a`               | Add track to playlist                     |
 | `R`               | Refresh current playlist                  |
 | `q`               | Quit                                      |
+
+---
 
 ## Architecture
 
