@@ -70,6 +70,7 @@ mmt
 | `r`               | Cycle repeat mode (off → all → one) |
 | `c`               | Cycle highlight color               |
 | `j` `k` / `↑` `↓` | Navigate list                       |
+| `J` `K`           | Jump to next / previous album (search) |
 | `g` `G`           | Jump to top / bottom                |
 | `h` `l`           | Switch column (left ↔ content)      |
 | `Tab`             | Switch pane (Recently Added ↔ Playlists) |

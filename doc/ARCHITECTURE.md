@@ -412,6 +412,7 @@ pub struct App {
 | `c`               | Cycle highlight color                                  |
 | `R`               | Refresh current playlist (force reload from Music.app) |
 | `j` `k` / `↑` `↓` | Navigate list                                          |
+| `J` `K`           | Jump to next / previous album (in search results)      |
 | `g` `G`           | Jump to top / bottom of list                           |
 | `h` `l`           | Switch column (left pane ↔ content)                    |
 | `Tab`             | Switch pane (Recently Added ↔ Playlists)               |
