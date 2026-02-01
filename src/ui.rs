@@ -703,11 +703,7 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
         frame.render_widget(loading, list_area);
     } else if items.is_empty() {
         let empty_msg = if app.search_mode {
-            if app.search_query.len() < 3 {
-                "Type at least 3 characters..."
-            } else {
-                "No results found"
-            }
+            "No results found"
         } else {
             "No items"
         };
