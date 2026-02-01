@@ -1,6 +1,6 @@
 [package]
 name = "macos-music-tui"
-version = "2026.2.1"
+version = "0.1.0"
 edition = "2021"
 description = "TUI for controlling macOS Music.app with keyboard"
 license = "MIT"
