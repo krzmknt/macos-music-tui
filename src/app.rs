@@ -48,6 +48,12 @@ pub enum Focus {
     Search,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DragTarget {
+    ColumnDivider,      // 左右カラムの境界
+    CardDivider,        // Recently AddedとPlaylistsの境界
+}
+
 
 pub struct App {
     pub track: TrackInfo,
@@ -77,6 +83,11 @@ pub struct App {
     pub recently_added_visible: usize,
     pub playlists_visible: usize,
     pub content_visible: usize,
+
+    // レイアウトサイズ（リサイズ可能）
+    pub left_column_width: u16,
+    pub recently_added_height: u16,
+    pub dragging: Option<DragTarget>,
 
     pub search_mode: bool,
     pub search_query: String,
@@ -360,6 +371,9 @@ impl App {
             recently_added_visible: 10,  // デフォルト値、UIから更新される
             playlists_visible: 10,       // デフォルト値、UIから更新される
             content_visible: 15,         // デフォルト値、UIから更新される
+            left_column_width: 40,       // 左カラムの幅
+            recently_added_height: 12,   // Recently Addedカードの高さ
+            dragging: None,
             search_mode: false,
             search_query: String::new(),
             search_results: Vec::new(),
@@ -408,31 +422,14 @@ impl App {
         // - header: 4
         // - footer: 2
         // - main area: terminal_height - 2 - 4 - 2 = terminal_height - 8
-        //
-        // Left column:
-        // - search: 3 (when not in search mode)
-        // - recently_added: 12 (fixed)
-        // - playlists: remaining
-        //
-        // Recently Added card (height 12):
-        // - border: 2
-        // - title: 1
-        // - list: 12 - 2 - 1 = 9
-        //
-        // Playlists card:
-        // - border: 2
-        // - title: 1
-        // - list: remaining - 3
 
         let main_height = terminal_height.saturating_sub(8);
         let search_height: u16 = if self.search_mode { 3 } else { 3 };
-        let recently_added_height: u16 = 12;
-        let playlists_height = main_height.saturating_sub(search_height + recently_added_height);
+        let playlists_height = main_height.saturating_sub(search_height + self.recently_added_height);
 
-        // Recently Added: 固定12行のカード
-        // カード高さ12 - ボーダー2 - タイトル1 = リスト部分9行
-        // 余白を考慮して1引く
-        self.recently_added_visible = 8;
+        // Recently Added: 動的なサイズ
+        // カード高さ - ボーダー2 - タイトル1 - 余白1 = リスト部分
+        self.recently_added_visible = self.recently_added_height.saturating_sub(4) as usize;
 
         // Playlists: 動的なサイズ
         // カード高さ - ボーダー2 - タイトル1 - 余白3 = リスト部分
@@ -665,40 +662,43 @@ impl App {
     /// マウスクリックを処理
     /// 戻り値: クリックが処理されたか
     pub fn handle_mouse_click(&mut self, x: u16, y: u16, terminal_height: u16) -> bool {
-        // レイアウト計算
-        // margin: 1
-        // header: 4 (実際のレンダリング位置を考慮して+2調整)
-        // footer: 2
-
-        let header_height = 7u16;  // 4 + margin調整
+        let header_height = 7u16;
         let footer_height = 2u16;
-        let left_column_width = 40u16;
 
         let main_start_y = header_height;
         let main_end_y = terminal_height.saturating_sub(footer_height + 1);
-        
+
         // クリックがメインエリア外なら無視
         if y < main_start_y || y >= main_end_y {
             return false;
         }
-        
+
         let relative_y = y - main_start_y;
-        
-        // 左カラム (x < left_column_width + 1 for margin)
-        if x < left_column_width + 1 {
-            // Search: 3行
-            // Recently Added: 12行
-            // Playlists: 残り
-            let search_height = 3u16;
-            let recently_added_height = 12u16;
-            
+        let search_height = 3u16;
+
+        // カラム境界のドラッグ検出 (左カラム幅 ±2 の範囲)
+        let column_divider_x = self.left_column_width + 1;
+        if x >= column_divider_x.saturating_sub(1) && x <= column_divider_x + 1 {
+            self.dragging = Some(DragTarget::ColumnDivider);
+            return true;
+        }
+
+        // カード境界のドラッグ検出 (左カラム内、Recently AddedとPlaylistsの境界 ±1)
+        if x < column_divider_x {
+            let card_divider_y = search_height + self.recently_added_height;
+            if relative_y >= card_divider_y.saturating_sub(1) && relative_y <= card_divider_y {
+                self.dragging = Some(DragTarget::CardDivider);
+                return true;
+            }
+        }
+
+        // 通常のクリック処理
+        if x < column_divider_x {
             if relative_y < search_height {
-                // Search area - 無視
                 return false;
-            } else if relative_y < search_height + recently_added_height {
+            } else if relative_y < search_height + self.recently_added_height {
                 // Recently Added
                 let card_y = relative_y - search_height;
-                // カード内: ボーダー1 + タイトル1 = 2行がヘッダー
                 if card_y >= 2 {
                     let item_index = (card_y - 2) as usize + self.recently_added_scroll;
                     if item_index < self.recently_added.len() {
@@ -712,9 +712,8 @@ impl App {
                 return true;
             } else {
                 // Playlists
-                let card_start = search_height + recently_added_height;
+                let card_start = search_height + self.recently_added_height;
                 let card_y = relative_y - card_start;
-                // カード内: ボーダー1 + タイトル1 = 2行がヘッダー
                 if card_y >= 2 {
                     let item_index = (card_y - 2) as usize + self.playlists_scroll;
                     if item_index < self.playlists.len() {
@@ -729,12 +728,10 @@ impl App {
             }
         } else {
             // Right column (Content)
-            // ボーダー1 + タイトル1 + ヘッダー1 = 3行がヘッダー
             if relative_y >= 3 {
                 let item_index = (relative_y - 3) as usize + self.content_scroll;
                 let items = if self.search_mode { &self.search_results } else { &self.content_items };
                 if item_index < items.len() {
-                    // 既に選択済みの曲をクリックしたら再生
                     if self.content_selected == item_index && self.focus == Focus::Content {
                         self.play_selected();
                     } else {
@@ -747,6 +744,43 @@ impl App {
             self.focus = Focus::Content;
             return true;
         }
+    }
+
+
+    /// マウスドラッグを処理
+    pub fn handle_mouse_drag(&mut self, x: u16, y: u16, terminal_height: u16) {
+        let Some(target) = self.dragging else {
+            return;
+        };
+
+        match target {
+            DragTarget::ColumnDivider => {
+                // 左カラム幅を調整 (最小20、最大でターミナル幅の70%)
+                let min_width = 20u16;
+                let max_width = 100u16;  // 実際のターミナル幅に依存しないよう固定上限
+                self.left_column_width = x.clamp(min_width, max_width);
+            }
+            DragTarget::CardDivider => {
+                // Recently Addedの高さを調整
+                let header_height = 7u16;
+                let search_height = 3u16;
+                let main_start_y = header_height;
+                let main_height = terminal_height.saturating_sub(10);  // header + footer + margin
+
+                if y > main_start_y + search_height {
+                    let new_height = y - main_start_y - search_height;
+                    // 最小5行、最大で main_height - 5 (Playlistsに最低5行残す)
+                    let min_height = 5u16;
+                    let max_height = main_height.saturating_sub(5);
+                    self.recently_added_height = new_height.clamp(min_height, max_height);
+                }
+            }
+        }
+    }
+
+    /// マウスボタンを離したときの処理
+    pub fn handle_mouse_up(&mut self) {
+        self.dragging = None;
     }
 
     pub fn recently_added_up(&mut self) {

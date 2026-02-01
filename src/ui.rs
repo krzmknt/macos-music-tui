@@ -8,7 +8,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, Focus};
-use crate::music::TrackInfo;
+use crate::music::{ListItem, TrackInfo};
 
 const BG_ACCENT: Color = Color::Rgb(60, 60, 80);
 const BORDER_DIM: Color = Color::Rgb(60, 60, 75);
@@ -35,7 +35,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let body_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(40),  // Left column
+            Constraint::Length(app.left_column_width),  // Left column (resizable)
             Constraint::Min(30),     // Right column (Content)
         ])
         .split(main_chunks[1]);
@@ -170,7 +170,7 @@ fn draw_left_column(frame: &mut Frame, app: &App, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(search_height),  // Search
-            Constraint::Length(12),             // Recently Added
+            Constraint::Length(app.recently_added_height),  // Recently Added (resizable)
             Constraint::Min(5),                 // Playlists
         ])
         .split(area);
@@ -390,8 +390,10 @@ fn draw_playlists(frame: &mut Frame, app: &App, area: Rect) {
     let inner = inner_area(area, 2, 1);
 
     let title_area = Rect { height: 1, ..inner };
+    let playlist_count = app.playlists.len();
     let title = Paragraph::new(Line::from(vec![
         Span::styled("Playlists", Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
+        Span::styled(format!(" ({})", playlist_count), Style::default().fg(TEXT_DIM)),
     ]));
     frame.render_widget(title, title_area);
 
@@ -451,30 +453,38 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
         frame.render_widget(title, title_area);
     } else if is_album_detail {
         // アルバム詳細: "Album - Artist Year" の形式をパースして別スタイルで表示
+        let total_time = calculate_total_time(&app.content_items);
+        let time_suffix = format!(" [{}]", total_time);
         let parts: Vec<&str> = app.content_title.splitn(2, " - ").collect();
         if parts.len() == 2 {
             let album = parts[0];
             let artist_year = parts[1];
             let separator = " - ";
-            let album_max = max_title_width.saturating_sub(separator.len() + artist_year.width()).min(max_title_width * 50 / 100);
-            let artist_max = max_title_width.saturating_sub(album_max + separator.len());
+            let available = max_title_width.saturating_sub(time_suffix.len());
+            let album_max = available.saturating_sub(separator.len() + artist_year.width()).min(available * 50 / 100);
+            let artist_max = available.saturating_sub(album_max + separator.len());
 
             let title = Paragraph::new(Line::from(vec![
                 Span::styled(truncate(album, album_max), Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
                 Span::styled(separator, Style::default().fg(TEXT_DIM)),
                 Span::styled(truncate(artist_year, artist_max), Style::default().fg(TEXT_DIM)),
+                Span::styled(&time_suffix, Style::default().fg(TEXT_DIM)),
             ]));
             frame.render_widget(title, title_area);
         } else {
             let title = Paragraph::new(Line::from(vec![
-                Span::styled(truncate(&app.content_title, max_title_width), Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
+                Span::styled(truncate(&app.content_title, max_title_width.saturating_sub(time_suffix.len())), Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
+                Span::styled(&time_suffix, Style::default().fg(TEXT_DIM)),
             ]));
             frame.render_widget(title, title_area);
         }
     } else if is_playlist_detail {
-        // プレイリスト詳細: プレイリスト名を表示
+        // プレイリスト詳細: プレイリスト名 + 合計時間を表示
+        let total_time = calculate_total_time(&app.content_items);
+        let time_suffix = format!(" [{}]", total_time);
         let title = Paragraph::new(Line::from(vec![
-            Span::styled(truncate(&app.content_title, max_title_width), Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
+            Span::styled(truncate(&app.content_title, max_title_width.saturating_sub(time_suffix.len())), Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
+            Span::styled(&time_suffix, Style::default().fg(TEXT_DIM)),
         ]));
         frame.render_widget(title, title_area);
     } else {
@@ -671,17 +681,18 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             frame.render_widget(line, line_area);
         }
     } else if is_playlist_detail {
-        // プレイリスト詳細モード: テーブル形式で表示 (Name, Artist, Album, Year, Time, Plays)
+        // プレイリスト詳細モード: テーブル形式で表示 (#, Name, Artist, Album, Year, Time, Plays)
         let total_width = list_area.width as usize;
 
         // 列幅の計算
         let available = total_width.saturating_sub(1); // プレフィックス用
         let col_gap = 2;     // 列間の間隔
+        let col_track = 4;   // #
         let col_year = 5;    // Year
         let col_time = 5;    // Time
         let col_plays = 5;   // Plays
-        // 間隔: Name - Artist - Album - Year - Time - Plays (5つの間隔)
-        let fixed_cols = col_year + col_time + col_plays + (col_gap * 5);
+        // 間隔: # - Name - Artist - Album - Year - Time - Plays (6つの間隔)
+        let fixed_cols = col_track + col_year + col_time + col_plays + (col_gap * 6);
         let flex_total = available.saturating_sub(fixed_cols);
         let col_name = flex_total * 35 / 100;
         let col_artist = flex_total * 30 / 100;
@@ -691,6 +702,8 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
         let header_area = Rect { height: 1, ..list_area };
         let header = Paragraph::new(Line::from(vec![
             Span::styled(" ", Style::default()),
+            Span::styled(pad_right("#", col_track), Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
+            Span::styled(" ".repeat(col_gap), Style::default()),
             Span::styled(pad_left("Name", col_name), Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
             Span::styled(" ".repeat(col_gap), Style::default()),
             Span::styled(pad_left("Artist", col_artist), Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
@@ -737,6 +750,7 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             };
 
             let prefix = if is_selected && is_focused { ">" } else { " " };
+            let track_num = (i + 1).to_string();  // 1-indexed track number
             let display_name = if item.name.is_empty() { "(No title)" } else { &item.name };
             let display_artist = if item.artist.is_empty() { "(No artist)" } else { &item.artist };
             let display_album = if item.album.is_empty() { "(No album)" } else { &item.album };
@@ -745,6 +759,8 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
 
             let line = Paragraph::new(Line::from(vec![
                 Span::styled(prefix, Style::default().fg(ACCENT_CYAN)),
+                Span::styled(pad_right(&track_num, col_track), sub_style),
+                Span::styled(" ".repeat(col_gap), Style::default()),
                 Span::styled(pad_left(&truncate(display_name, col_name.saturating_sub(1)), col_name), name_style),
                 Span::styled(" ".repeat(col_gap), Style::default()),
                 Span::styled(pad_left(&truncate(display_artist, col_artist.saturating_sub(1)), col_artist), sub_style),
@@ -822,11 +838,13 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         ]
     } else {
         vec![
-            ("space", "play/pause"),
+            ("Space", "play/pause"),
+            ("Return", "select"),
             ("n/p", "track"),
             ("←→", "seek"),
             ("s", "shuffle"),
             ("r", "repeat"),
+            ("R", "refresh"),
             ("j/k", "nav"),
             ("Tab", "focus"),
             ("/", "search"),
@@ -853,6 +871,36 @@ fn inner_area(area: Rect, h_padding: u16, v_padding: u16) -> Rect {
         y: area.y + v_padding,
         width: area.width.saturating_sub(h_padding * 2),
         height: area.height.saturating_sub(v_padding * 2),
+    }
+}
+
+/// アイテムリストの合計時間を計算
+fn calculate_total_time(items: &[ListItem]) -> String {
+    let mut total_seconds = 0u32;
+    for item in items {
+        // "M:SS" or "MM:SS" or "H:MM:SS" format
+        let parts: Vec<&str> = item.time.split(':').collect();
+        if parts.len() == 2 {
+            // M:SS or MM:SS
+            if let (Ok(m), Ok(s)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+                total_seconds += m * 60 + s;
+            }
+        } else if parts.len() == 3 {
+            // H:MM:SS
+            if let (Ok(h), Ok(m), Ok(s)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>(), parts[2].parse::<u32>()) {
+                total_seconds += h * 3600 + m * 60 + s;
+            }
+        }
+    }
+
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+
+    if hours > 0 {
+        format!("{}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{}:{:02}", minutes, seconds)
     }
 }
 

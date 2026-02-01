@@ -65,8 +65,17 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
             let terminal_height = terminal.size()?.height;
             match event::read()? {
                 Event::Mouse(mouse) => {
-                    if let MouseEventKind::Down(crossterm::event::MouseButton::Left) = mouse.kind {
-                        app.handle_mouse_click(mouse.column, mouse.row, terminal_height);
+                    match mouse.kind {
+                        MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+                            app.handle_mouse_click(mouse.column, mouse.row, terminal_height);
+                        }
+                        MouseEventKind::Drag(crossterm::event::MouseButton::Left) => {
+                            app.handle_mouse_drag(mouse.column, mouse.row, terminal_height);
+                        }
+                        MouseEventKind::Up(crossterm::event::MouseButton::Left) => {
+                            app.handle_mouse_up();
+                        }
+                        _ => {}
                     }
                 }
                 Event::Key(key) => {
