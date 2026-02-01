@@ -11,6 +11,7 @@ use crate::app::{App, Focus};
 use crate::music::{ListItem, TrackInfo};
 
 const BG_ACCENT: Color = Color::Rgb(60, 60, 80);
+const BG_SELECTED: Color = Color::Rgb(50, 50, 60);
 const BORDER_DIM: Color = Color::Rgb(60, 60, 75);
 const TEXT_PRIMARY: Color = Color::Rgb(255, 255, 255);
 const TEXT_SECONDARY: Color = Color::Rgb(160, 160, 180);
@@ -351,32 +352,46 @@ fn draw_recently_added(frame: &mut Frame, app: &App, area: Rect) {
             }
             let line_area = Rect { x: list_area.x, y, width: list_area.width, height: 1 };
             let is_selected = i == app.recently_added_selected;
-            let style = if is_selected && is_focused {
-                Style::default().fg(accent_color(app))
+
+            // 選択行の背景色
+            let bg_style = if is_selected && is_focused {
+                Style::default().bg(BG_SELECTED)
             } else {
-                Style::default().fg(TEXT_SECONDARY)
+                Style::default()
             };
-            let prefix = if is_selected && is_focused { ">" } else { " " };
+
+            let (album_style, artist_style, prefix) = if is_selected && is_focused {
+                (Style::default().fg(TEXT_PRIMARY).bg(BG_SELECTED),
+                 Style::default().fg(TEXT_SECONDARY).bg(BG_SELECTED),
+                 "▎")
+            } else {
+                (Style::default().fg(TEXT_SECONDARY),
+                 Style::default().fg(TEXT_DIM),
+                 " ")
+            };
+
             let max_len = list_area.width.saturating_sub(2) as usize;
 
             // アルバム名とアーティスト名を別々のスタイルで表示
             let line = if !item.artist.is_empty() {
-                let album_style = style;
-                let artist_style = Style::default().fg(TEXT_DIM);
                 let separator = " - ";
                 let album_max = max_len.saturating_sub(separator.len() + item.artist.width()).min(max_len * 60 / 100);
                 let artist_max = max_len.saturating_sub(album_max + separator.len());
+                let remaining = max_len.saturating_sub(truncate(&item.album, album_max).width() + separator.len() + truncate(&item.artist, artist_max).width());
 
                 Paragraph::new(Line::from(vec![
-                    Span::styled(prefix, Style::default().fg(accent_color(app))),
+                    Span::styled(prefix, Style::default().fg(accent_color(app)).bg(if is_selected && is_focused { BG_SELECTED } else { Color::Reset })),
                     Span::styled(truncate(&item.album, album_max), album_style),
-                    Span::styled(separator, Style::default().fg(TEXT_DIM)),
+                    Span::styled(separator, Style::default().fg(TEXT_DIM).bg(if is_selected && is_focused { BG_SELECTED } else { Color::Reset })),
                     Span::styled(truncate(&item.artist, artist_max), artist_style),
+                    Span::styled(" ".repeat(remaining), bg_style),
                 ]))
             } else {
+                let remaining = max_len.saturating_sub(truncate(&item.name, max_len).width());
                 Paragraph::new(Line::from(vec![
-                    Span::styled(prefix, Style::default().fg(accent_color(app))),
-                    Span::styled(truncate(&item.name, max_len), style),
+                    Span::styled(prefix, Style::default().fg(accent_color(app)).bg(if is_selected && is_focused { BG_SELECTED } else { Color::Reset })),
+                    Span::styled(truncate(&item.name, max_len), album_style),
+                    Span::styled(" ".repeat(remaining), bg_style),
                 ]))
             };
             frame.render_widget(line, line_area);
@@ -446,38 +461,46 @@ fn draw_playlists(frame: &mut Frame, app: &App, area: Rect) {
             }
             let line_area = Rect { x: inner.x, y, width: inner.width, height: 1 };
             let is_selected = idx == app.playlists_selected;
+            let row_width = inner.width as usize;
 
             if idx < app.playlists.len() {
                 // 通常のプレイリスト
                 let item = &app.playlists[idx];
                 let is_refreshing = app.playlist_refreshing.as_ref() == Some(&item.name);
-                let style = if is_selected && is_focused {
-                    Style::default().fg(accent_color(app))
+
+                let (style, prefix, bg) = if is_selected && is_focused {
+                    (Style::default().fg(TEXT_PRIMARY).bg(BG_SELECTED), "▎", BG_SELECTED)
                 } else {
-                    Style::default().fg(TEXT_SECONDARY)
+                    (Style::default().fg(TEXT_SECONDARY), " ", Color::Reset)
                 };
-                let prefix = if is_selected && is_focused { ">" } else { " " };
-                
+
                 let mut spans = vec![
-                    Span::styled(prefix, Style::default().fg(accent_color(app))),
+                    Span::styled(prefix, Style::default().fg(accent_color(app)).bg(bg)),
                     Span::styled(&item.name, style),
                 ];
                 if is_refreshing {
-                    spans.push(Span::styled(format!(" {}", spinner_char), Style::default().fg(accent_color(app))));
+                    spans.push(Span::styled(format!(" {}", spinner_char), Style::default().fg(accent_color(app)).bg(bg)));
                 }
+                // 行末まで背景色を埋める
+                let content_len = 1 + item.name.width() + if is_refreshing { 2 } else { 0 };
+                let remaining = row_width.saturating_sub(content_len);
+                spans.push(Span::styled(" ".repeat(remaining), Style::default().bg(bg)));
+
                 let line = Paragraph::new(Line::from(spans));
                 frame.render_widget(line, line_area);
             } else if app.add_to_playlist_mode {
                 // "+ New playlist" 項目
-                let style = if is_selected && is_focused {
-                    Style::default().fg(ACCENT_GREEN)
+                let (style, prefix, bg) = if is_selected && is_focused {
+                    (Style::default().fg(ACCENT_GREEN).bg(BG_SELECTED), "▎", BG_SELECTED)
                 } else {
-                    Style::default().fg(ACCENT_GREEN).add_modifier(Modifier::DIM)
+                    (Style::default().fg(ACCENT_GREEN).add_modifier(Modifier::DIM), " ", Color::Reset)
                 };
-                let prefix = if is_selected && is_focused { ">" } else { " " };
+                let text = "+ New playlist";
+                let remaining = row_width.saturating_sub(1 + text.width());
                 let line = Paragraph::new(Line::from(vec![
-                    Span::styled(prefix, Style::default().fg(accent_color(app))),
-                    Span::styled("+ New playlist", style),
+                    Span::styled(prefix, Style::default().fg(accent_color(app)).bg(bg)),
+                    Span::styled(text, style),
+                    Span::styled(" ".repeat(remaining), Style::default().bg(bg)),
                 ]));
                 frame.render_widget(line, line_area);
             }
@@ -647,23 +670,24 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             let line_area = Rect { x: data_area.x, y, width: data_area.width, height: 1 };
             let is_selected = i == app.content_selected;
 
-            let (name_style, sub_style) = if is_selected && is_focused {
-                (Style::default().fg(accent_color(app)), Style::default().fg(TEXT_SECONDARY))
+            let (name_style, sub_style, prefix, bg) = if is_selected && is_focused {
+                (Style::default().fg(TEXT_PRIMARY).bg(BG_SELECTED),
+                 Style::default().fg(TEXT_SECONDARY).bg(BG_SELECTED),
+                 "▎", BG_SELECTED)
             } else if is_selected {
-                (Style::default().fg(TEXT_PRIMARY), Style::default().fg(TEXT_DIM))
+                (Style::default().fg(TEXT_PRIMARY), Style::default().fg(TEXT_DIM), " ", Color::Reset)
             } else {
-                (Style::default().fg(TEXT_SECONDARY), Style::default().fg(TEXT_DIM))
+                (Style::default().fg(TEXT_SECONDARY), Style::default().fg(TEXT_DIM), " ", Color::Reset)
             };
 
-            let prefix = if is_selected && is_focused { ">" } else { " " };
             let seq_num = (i + 1).to_string();  // 通し番号 (1-indexed)
             let year_str = if item.year > 0 { item.year.to_string() } else { String::new() };
             let plays_str = if item.played_count > 0 { item.played_count.to_string() } else { String::new() };
 
             let line = Paragraph::new(Line::from(vec![
-                Span::styled(prefix, Style::default().fg(accent_color(app))),
+                Span::styled(prefix, Style::default().fg(accent_color(app)).bg(bg)),
                 Span::styled(pad_right(&seq_num, col_track), sub_style),
-                Span::styled(" ".repeat(col_gap), Style::default()),
+                Span::styled(" ".repeat(col_gap), Style::default().bg(bg)),
                 Span::styled(pad_left(&truncate(&item.name, col_name.saturating_sub(1)), col_name), name_style),
                 Span::styled(pad_left(&truncate(&item.artist, col_artist.saturating_sub(1)), col_artist), sub_style),
                 Span::styled(pad_left(&truncate(&item.album, col_album.saturating_sub(1)), col_album), sub_style),
@@ -724,26 +748,27 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             let line_area = Rect { x: data_area.x, y, width: data_area.width, height: 1 };
             let is_selected = i == app.content_selected;
 
-            let (name_style, sub_style) = if is_selected && is_focused {
-                (Style::default().fg(accent_color(app)), Style::default().fg(TEXT_SECONDARY))
+            let (name_style, sub_style, prefix, bg) = if is_selected && is_focused {
+                (Style::default().fg(TEXT_PRIMARY).bg(BG_SELECTED),
+                 Style::default().fg(TEXT_SECONDARY).bg(BG_SELECTED),
+                 "▎", BG_SELECTED)
             } else if is_selected {
-                (Style::default().fg(TEXT_PRIMARY), Style::default().fg(TEXT_DIM))
+                (Style::default().fg(TEXT_PRIMARY), Style::default().fg(TEXT_DIM), " ", Color::Reset)
             } else {
-                (Style::default().fg(TEXT_SECONDARY), Style::default().fg(TEXT_DIM))
+                (Style::default().fg(TEXT_SECONDARY), Style::default().fg(TEXT_DIM), " ", Color::Reset)
             };
 
-            let prefix = if is_selected && is_focused { ">" } else { " " };
             let track_str = if item.track_number > 0 { item.track_number.to_string() } else { String::new() };
             let plays_str = if item.played_count > 0 { item.played_count.to_string() } else { String::new() };
 
             let line = Paragraph::new(Line::from(vec![
-                Span::styled(prefix, Style::default().fg(accent_color(app))),
+                Span::styled(prefix, Style::default().fg(accent_color(app)).bg(bg)),
                 Span::styled(pad_right(&track_str, col_track), sub_style),
-                Span::styled(" ".repeat(col_gap), Style::default()),
+                Span::styled(" ".repeat(col_gap), Style::default().bg(bg)),
                 Span::styled(pad_left(&truncate(&item.name, col_name.saturating_sub(1)), col_name), name_style),
-                Span::styled(" ".repeat(col_gap), Style::default()),
+                Span::styled(" ".repeat(col_gap), Style::default().bg(bg)),
                 Span::styled(pad_right(&item.time, col_time), sub_style),
-                Span::styled(" ".repeat(col_gap), Style::default()),
+                Span::styled(" ".repeat(col_gap), Style::default().bg(bg)),
                 Span::styled(pad_right(&plays_str, col_plays), sub_style),
             ]));
             frame.render_widget(line, line_area);
@@ -809,15 +834,16 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             let line_area = Rect { x: data_area.x, y, width: data_area.width, height: 1 };
             let is_selected = i == app.content_selected;
 
-            let (name_style, sub_style) = if is_selected && is_focused {
-                (Style::default().fg(accent_color(app)), Style::default().fg(TEXT_SECONDARY))
+            let (name_style, sub_style, prefix, bg) = if is_selected && is_focused {
+                (Style::default().fg(TEXT_PRIMARY).bg(BG_SELECTED),
+                 Style::default().fg(TEXT_SECONDARY).bg(BG_SELECTED),
+                 "▎", BG_SELECTED)
             } else if is_selected {
-                (Style::default().fg(TEXT_PRIMARY), Style::default().fg(TEXT_DIM))
+                (Style::default().fg(TEXT_PRIMARY), Style::default().fg(TEXT_DIM), " ", Color::Reset)
             } else {
-                (Style::default().fg(TEXT_SECONDARY), Style::default().fg(TEXT_DIM))
+                (Style::default().fg(TEXT_SECONDARY), Style::default().fg(TEXT_DIM), " ", Color::Reset)
             };
 
-            let prefix = if is_selected && is_focused { ">" } else { " " };
             let track_num = (i + 1).to_string();  // 1-indexed track number
             let display_name = if item.name.is_empty() { "(No title)" } else { &item.name };
             let display_artist = if item.artist.is_empty() { "(No artist)" } else { &item.artist };
@@ -826,19 +852,19 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             let plays_str = if item.played_count > 0 { item.played_count.to_string() } else { String::new() };
 
             let line = Paragraph::new(Line::from(vec![
-                Span::styled(prefix, Style::default().fg(accent_color(app))),
+                Span::styled(prefix, Style::default().fg(accent_color(app)).bg(bg)),
                 Span::styled(pad_right(&track_num, col_track), sub_style),
-                Span::styled(" ".repeat(col_gap), Style::default()),
+                Span::styled(" ".repeat(col_gap), Style::default().bg(bg)),
                 Span::styled(pad_left(&truncate(display_name, col_name.saturating_sub(1)), col_name), name_style),
-                Span::styled(" ".repeat(col_gap), Style::default()),
+                Span::styled(" ".repeat(col_gap), Style::default().bg(bg)),
                 Span::styled(pad_left(&truncate(display_artist, col_artist.saturating_sub(1)), col_artist), sub_style),
-                Span::styled(" ".repeat(col_gap), Style::default()),
+                Span::styled(" ".repeat(col_gap), Style::default().bg(bg)),
                 Span::styled(pad_left(&truncate(display_album, col_album.saturating_sub(1)), col_album), sub_style),
-                Span::styled(" ".repeat(col_gap), Style::default()),
+                Span::styled(" ".repeat(col_gap), Style::default().bg(bg)),
                 Span::styled(pad_right(&year_str, col_year), sub_style),
-                Span::styled(" ".repeat(col_gap), Style::default()),
+                Span::styled(" ".repeat(col_gap), Style::default().bg(bg)),
                 Span::styled(pad_right(&item.time, col_time), sub_style),
-                Span::styled(" ".repeat(col_gap), Style::default()),
+                Span::styled(" ".repeat(col_gap), Style::default().bg(bg)),
                 Span::styled(pad_right(&plays_str, col_plays), sub_style),
             ]));
             frame.render_widget(line, line_area);
@@ -859,12 +885,13 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             };
 
             let is_selected = i == app.content_selected;
-            let (prefix, name_style, sub_style) = if is_selected && is_focused {
-                ("> ", Style::default().fg(accent_color(app)), Style::default().fg(TEXT_SECONDARY))
+            let (prefix, name_style, sub_style, bg) = if is_selected && is_focused {
+                ("▎ ", Style::default().fg(TEXT_PRIMARY).bg(BG_SELECTED),
+                 Style::default().fg(TEXT_SECONDARY).bg(BG_SELECTED), BG_SELECTED)
             } else if is_selected {
-                ("  ", Style::default().fg(TEXT_PRIMARY), Style::default().fg(TEXT_DIM))
+                ("  ", Style::default().fg(TEXT_PRIMARY), Style::default().fg(TEXT_DIM), Color::Reset)
             } else {
-                ("  ", Style::default().fg(TEXT_SECONDARY), Style::default().fg(TEXT_DIM))
+                ("  ", Style::default().fg(TEXT_SECONDARY), Style::default().fg(TEXT_DIM), Color::Reset)
             };
 
             let total_width = list_area.width as usize;
@@ -877,15 +904,21 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             let display_album = if item.album.is_empty() { "(No album)" } else { &item.album };
 
             let mut spans = vec![
-                Span::styled(prefix, Style::default().fg(accent_color(app))),
+                Span::styled(prefix, Style::default().fg(accent_color(app)).bg(bg)),
                 Span::styled(truncate(display_name, name_max), name_style),
             ];
 
-            spans.push(Span::styled(" - ", Style::default().fg(TEXT_DIM)));
+            spans.push(Span::styled(" - ", Style::default().fg(TEXT_DIM).bg(bg)));
             spans.push(Span::styled(truncate(display_artist, artist_max), sub_style));
 
-            spans.push(Span::styled(" - ", Style::default().fg(TEXT_DIM)));
+            spans.push(Span::styled(" - ", Style::default().fg(TEXT_DIM).bg(bg)));
             spans.push(Span::styled(truncate(display_album, album_max), sub_style));
+
+            // 行末まで背景を埋める
+            let content_len = prefix.width() + truncate(display_name, name_max).width() + 3 +
+                truncate(display_artist, artist_max).width() + 3 + truncate(display_album, album_max).width();
+            let remaining = total_width.saturating_sub(content_len);
+            spans.push(Span::styled(" ".repeat(remaining), Style::default().bg(bg)));
 
             let line = Paragraph::new(Line::from(spans));
             frame.render_widget(line, line_area);
