@@ -4,6 +4,7 @@ mod cache;
 mod music;
 mod ui;
 
+use std::env;
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -17,7 +18,17 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 
 use app::{App, Focus};
 
+const BUILD_VERSION: &str = env!("BUILD_VERSION");
+const GIT_COMMIT: &str = env!("GIT_COMMIT_HASH");
+
 fn main() -> Result<()> {
+    // Handle --version flag
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 && (args[1] == "--version" || args[1] == "-V") {
+        println!("mmt v{} build {}", BUILD_VERSION, GIT_COMMIT);
+        return Ok(());
+    }
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;

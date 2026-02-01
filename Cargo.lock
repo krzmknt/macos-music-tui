@@ -483,7 +483,7 @@ dependencies = [
 
 [[package]]
 name = "macos-music-tui"
-version = "0.1.0"
+version = "2026.2.1"
 dependencies = [
  "accessibility",
  "anyhow",
