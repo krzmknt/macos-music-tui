@@ -1286,7 +1286,7 @@ impl App {
     }
 
     fn do_search(&mut self) {
-        if self.search_query.len() >= 3 {
+        if self.search_query.len() >= 2 {
             // キャッシュから検索（高速・同期）
             let mut results: Vec<_> = self.cache
                 .search(&self.search_query)
