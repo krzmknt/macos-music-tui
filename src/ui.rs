@@ -209,7 +209,7 @@ fn draw_help(frame: &mut Frame, app: &App) {
             Span::styled(" (use quotes)", Style::default().fg(TEXT_DIM)),
         ]),
         Line::from(vec![
-            Span::styled("  artist:\"IO\"", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled("  artist:\"ABC\"", Style::default().fg(TEXT_PRIMARY)),
             Span::styled("   Artist is exactly \"IO\"", Style::default().fg(TEXT_DIM)),
         ]),
         Line::from(vec![
