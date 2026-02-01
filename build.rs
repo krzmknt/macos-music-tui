@@ -1,6 +1,12 @@
+use std::env;
+use std::fs;
+use std::path::Path;
 use std::process::Command;
 
 fn main() {
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let dest_path = Path::new(&out_dir).join("version_info.rs");
+
     // Get git commit hash
     let output = Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
@@ -17,8 +23,6 @@ fn main() {
         })
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|| "unknown".to_string());
-
-    println!("cargo:rustc-env=GIT_COMMIT_HASH={}", commit_hash);
 
     // Get build timestamp for version (JST = UTC+9)
     let now = std::time::SystemTime::now()
@@ -63,10 +67,20 @@ fn main() {
     let day = days + 1;
 
     let build_version = format!("{}.{:02}.{:02}.{:02}.{:02}", year, month, day, hour, minute);
-    println!("cargo:rustc-env=BUILD_VERSION={}", build_version);
 
-    // Rerun if git HEAD changes
-    println!("cargo:rerun-if-changed=.git/HEAD");
+    // Write version info to file
+    fs::write(
+        &dest_path,
+        format!(
+            r#"pub const BUILD_VERSION: &str = "{}";
+pub const GIT_COMMIT: &str = "{}";"#,
+            build_version, commit_hash
+        ),
+    )
+    .unwrap();
+
+    // Always rerun - no caching
+    println!("cargo:rerun-if-changed=NULL");
 }
 
 fn is_leap_year(year: i32) -> bool {

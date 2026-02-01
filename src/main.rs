@@ -18,8 +18,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 
 use app::{App, Focus};
 
-const BUILD_VERSION: &str = env!("BUILD_VERSION");
-const GIT_COMMIT: &str = env!("GIT_COMMIT_HASH");
+include!(concat!(env!("OUT_DIR"), "/version_info.rs"));
 
 fn main() -> Result<()> {
     // Handle --version flag
