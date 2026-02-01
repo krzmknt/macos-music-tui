@@ -55,6 +55,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         app.poll_playlist_responses();
         app.update_level_meter();
         app.update_spinner();
+        app.update_visible_heights(terminal.size()?.height);
         terminal.draw(|f| ui::draw(f, &app))?;
 
         let timeout = Duration::from_millis(50);

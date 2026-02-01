@@ -73,6 +73,11 @@ pub struct App {
     pub playlists_selected: usize,
     pub playlists_scroll: usize,
 
+    // 可視行数（UIから設定）
+    pub recently_added_visible: usize,
+    pub playlists_visible: usize,
+    pub content_visible: usize,
+
     pub search_mode: bool,
     pub search_query: String,
     pub search_results: Vec<ListItem>,
@@ -352,6 +357,9 @@ impl App {
             playlists,
             playlists_selected: 0,
             playlists_scroll: 0,
+            recently_added_visible: 10,  // デフォルト値、UIから更新される
+            playlists_visible: 10,       // デフォルト値、UIから更新される
+            content_visible: 15,         // デフォルト値、UIから更新される
             search_mode: false,
             search_query: String::new(),
             search_results: Vec::new(),
@@ -390,6 +398,49 @@ impl App {
     /// スピナーフレームを更新
     pub fn update_spinner(&mut self) {
         self.spinner_frame = (self.spinner_frame + 1) % 10;
+    }
+
+
+    /// ターミナルサイズに基づいて可視行数を更新
+    pub fn update_visible_heights(&mut self, terminal_height: u16) {
+        // レイアウト計算:
+        // - margin: 1 (top) + 1 (bottom) = 2
+        // - header: 4
+        // - footer: 2
+        // - main area: terminal_height - 2 - 4 - 2 = terminal_height - 8
+        //
+        // Left column:
+        // - search: 3 (when not in search mode)
+        // - recently_added: 12 (fixed)
+        // - playlists: remaining
+        //
+        // Recently Added card (height 12):
+        // - border: 2
+        // - title: 1
+        // - list: 12 - 2 - 1 = 9
+        //
+        // Playlists card:
+        // - border: 2
+        // - title: 1
+        // - list: remaining - 3
+
+        let main_height = terminal_height.saturating_sub(8);
+        let search_height: u16 = if self.search_mode { 3 } else { 3 };
+        let recently_added_height: u16 = 12;
+        let playlists_height = main_height.saturating_sub(search_height + recently_added_height);
+
+        // Recently Added: 固定12行のカード
+        // カード高さ12 - ボーダー2 - タイトル1 = リスト部分9行
+        // 余白を考慮して1引く
+        self.recently_added_visible = 8;
+
+        // Playlists: 動的なサイズ
+        // カード高さ - ボーダー2 - タイトル1 - 余白3 = リスト部分
+        self.playlists_visible = playlists_height.saturating_sub(6) as usize;
+
+        // Content (右ペイン): main_height全体を使用
+        // ボーダー2 + タイトル1 + ヘッダー行1 + 余白3 = 7を引く
+        self.content_visible = main_height.saturating_sub(7) as usize;
     }
 
     /// レベルメーターを更新（再生中のみアニメーション）
@@ -763,7 +814,10 @@ impl App {
     }
 
     fn adjust_recently_added_scroll(&mut self) {
-        let visible = 9usize; // カード高さ12 - タイトル1 - ボーダー2 = 9行
+        let visible = self.recently_added_visible;
+        if visible == 0 {
+            return;
+        }
         if self.recently_added_selected < self.recently_added_scroll {
             self.recently_added_scroll = self.recently_added_selected;
         } else if self.recently_added_selected >= self.recently_added_scroll + visible {
@@ -788,7 +842,10 @@ impl App {
     }
 
     fn adjust_playlists_scroll(&mut self) {
-        let visible = 10usize; // カード高さ14 - タイトル1 - ボーダー2 - 余白1 = 10行
+        let visible = self.playlists_visible;
+        if visible == 0 {
+            return;
+        }
         if self.playlists_selected < self.playlists_scroll {
             self.playlists_scroll = self.playlists_selected;
         } else if self.playlists_selected >= self.playlists_scroll + visible {
@@ -814,7 +871,10 @@ impl App {
     }
 
     fn adjust_scroll(&mut self, _len: usize) {
-        let visible = 15usize;
+        let visible = self.content_visible;
+        if visible == 0 {
+            return;
+        }
         if self.content_selected < self.content_scroll {
             self.content_scroll = self.content_selected;
         } else if self.content_selected >= self.content_scroll + visible {
