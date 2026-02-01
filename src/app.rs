@@ -1165,8 +1165,21 @@ impl App {
     fn do_search(&mut self) {
         if self.search_query.len() >= 3 {
             // キャッシュから検索（高速・同期）
-            let results: Vec<ListItem> = self.cache
+            let mut results: Vec<_> = self.cache
                 .search(&self.search_query)
+                .into_iter()
+                .collect();
+            
+            // Artist昇順, Year昇順, Album昇順, Disc昇順, Track昇順 でソート
+            results.sort_by(|a, b| {
+                a.artist.cmp(&b.artist)
+                    .then_with(|| a.year.cmp(&b.year))
+                    .then_with(|| a.album.cmp(&b.album))
+                    .then_with(|| a.disc_number.cmp(&b.disc_number))
+                    .then_with(|| a.track_number.cmp(&b.track_number))
+            });
+            
+            self.search_results = results
                 .into_iter()
                 .map(|t| ListItem {
                     name: t.name.clone(),
@@ -1179,7 +1192,6 @@ impl App {
                     favorited: t.favorited,
                 })
                 .collect();
-            self.search_results = results;
             self.content_selected = 0;
             self.content_scroll = 0;
         }
@@ -1187,11 +1199,10 @@ impl App {
 
     pub fn confirm_search(&mut self) {
         if !self.search_results.is_empty() {
-            // 選択した項目を再生
-            self.play_selected();
-            // 検索モードを終了
-            self.search_mode = false;
+            // 検索結果（Detailカード）にフォーカス移動
             self.focus = Focus::Content;
+            self.content_selected = 0;
+            self.content_scroll = 0;
         }
     }
 }

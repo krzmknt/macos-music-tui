@@ -84,26 +84,59 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                 }
 
                 if app.search_mode {
-                    match key.code {
-                        KeyCode::Esc => {
-                            app.cancel_search();
+                    // 検索モード中のフォーカスによって動作を分岐
+                    if app.focus == Focus::Content {
+                        // 検索結果にフォーカス中: j/k/h でナビゲーション
+                        match key.code {
+                            KeyCode::Esc => {
+                                app.cancel_search();
+                            }
+                            KeyCode::Enter => {
+                                app.play_selected();
+                            }
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                app.content_up();
+                            }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                app.content_down();
+                            }
+                            KeyCode::Char('h') => {
+                                // Searchカードに戻る
+                                app.focus = Focus::Search;
+                            }
+                            KeyCode::Char('l') => {
+                                // 選択中の曲のアルバム全曲を表示
+                                if let Some(item) = app.search_results.get(app.content_selected) {
+                                    let album_name = item.album.clone();
+                                    app.show_album_tracks(&album_name);
+                                    app.search_mode = false;
+                                }
+                            }
+                            _ => {}
                         }
-                        KeyCode::Enter => {
-                            app.confirm_search();
+                    } else {
+                        // Searchカードにフォーカス中: 文字入力
+                        match key.code {
+                            KeyCode::Esc => {
+                                app.cancel_search();
+                            }
+                            KeyCode::Enter => {
+                                app.confirm_search();
+                            }
+                            KeyCode::Backspace => {
+                                app.search_backspace();
+                            }
+                            KeyCode::Char(c) => {
+                                app.search_input(c);
+                            }
+                            KeyCode::Up => {
+                                app.content_up();
+                            }
+                            KeyCode::Down => {
+                                app.content_down();
+                            }
+                            _ => {}
                         }
-                        KeyCode::Backspace => {
-                            app.search_backspace();
-                        }
-                        KeyCode::Char(c) => {
-                            app.search_input(c);
-                        }
-                        KeyCode::Up => {
-                            app.content_up();
-                        }
-                        KeyCode::Down => {
-                            app.content_down();
-                        }
-                        _ => {}
                     }
                 } else {
                     match key.code {

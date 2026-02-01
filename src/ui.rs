@@ -534,22 +534,27 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
         // 検索モード: テーブル形式で表示
         let total_width = list_area.width as usize;
 
-        // 列幅の計算 (Name, Artist, Album, Time, Year, Plays)
+        // 列幅の計算 (#, Name, Artist, Album, Time, Year, Plays)
         // プレフィックス用に1を引く
         let available = total_width.saturating_sub(1);
+        let col_track = 4;
         let col_time = 6;
         let col_year = 5;
         let col_plays = 6;
-        let fixed_cols = col_time + col_year + col_plays;
+        let track_name_gap = 2;  // # と Name の間隔
+        let fixed_cols = col_track + track_name_gap + col_time + col_year + col_plays;
         let flex_total = available.saturating_sub(fixed_cols);
         let col_name = flex_total * 30 / 100;
         let col_artist = flex_total * 30 / 100;
         let col_album = flex_total.saturating_sub(col_name + col_artist);
 
         // ヘッダー行
+        let col_gap = 2;
         let header_area = Rect { height: 1, ..list_area };
         let header = Paragraph::new(Line::from(vec![
             Span::styled(" ", Style::default()),
+            Span::styled(pad_right("#", col_track), Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
+            Span::styled(" ".repeat(col_gap), Style::default()),
             Span::styled(pad_left("Name", col_name), Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
             Span::styled(pad_left("Artist", col_artist), Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
             Span::styled(pad_left("Album", col_album), Style::default().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)),
@@ -591,11 +596,14 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
             };
 
             let prefix = if is_selected && is_focused { ">" } else { " " };
+            let seq_num = (i + 1).to_string();  // 通し番号 (1-indexed)
             let year_str = if item.year > 0 { item.year.to_string() } else { String::new() };
             let plays_str = if item.played_count > 0 { item.played_count.to_string() } else { String::new() };
 
             let line = Paragraph::new(Line::from(vec![
                 Span::styled(prefix, Style::default().fg(ACCENT_CYAN)),
+                Span::styled(pad_right(&seq_num, col_track), sub_style),
+                Span::styled(" ".repeat(col_gap), Style::default()),
                 Span::styled(pad_left(&truncate(&item.name, col_name.saturating_sub(1)), col_name), name_style),
                 Span::styled(pad_left(&truncate(&item.artist, col_artist.saturating_sub(1)), col_artist), sub_style),
                 Span::styled(pad_left(&truncate(&item.album, col_album.saturating_sub(1)), col_album), sub_style),
@@ -830,11 +838,34 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     let sep_style = Style::default().fg(TEXT_DIM);
 
     let commands: Vec<(&str, &str)> = if app.search_mode {
+        if app.focus == Focus::Content {
+            // 検索結果にフォーカス中
+            vec![
+                ("Return", "play"),
+                ("j/k", "nav"),
+                ("h", "back"),
+                ("l", "album"),
+                ("Esc", "cancel"),
+            ]
+        } else {
+            // Searchカードにフォーカス中
+            vec![
+                ("Return", "search"),
+                ("Esc", "cancel"),
+            ]
+        }
+    } else if app.focus == Focus::Content && app.is_playlist_detail {
+        // プレイリスト詳細にフォーカス中
         vec![
-            ("Type", "search"),
-            ("Enter", "play"),
-            ("↑↓", "select"),
-            ("Esc", "cancel"),
+            ("Space", "play/pause"),
+            ("Return", "play"),
+            ("n/p", "track"),
+            ("←→", "seek"),
+            ("j/k", "nav"),
+            ("h", "back"),
+            ("l", "album"),
+            ("/", "search"),
+            ("q", "quit"),
         ]
     } else {
         vec![
