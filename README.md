@@ -10,9 +10,7 @@ brew install krzmknt/tap/mmt
 
 ## Demo
 
-[![Demo Video](https://img.youtube.com/vi/Omg_Ilf9PII/maxresdefault.jpg)](https://youtu.be/Omg_Ilf9PII)
-
-▶️ Click to watch on YouTube
+https://github.com/user-attachments/assets/408ac5d1-c1cc-44a8-bde3-7f9706c9c211
 
 ## Features
 
